@@ -1,0 +1,9 @@
+---
+source: tests/snapshots.rs
+expression: out
+input_file: tests/cases/zcontent.txt
+---
+gcd = x*y*z + x*y + z^2 + z
+f/gcd = -y*z + x
+g/gcd = x^2 + z^2
+lcm = x^3*y^2*z^2 + x*y^2*z^4 - x^4*y*z + x^3*y^2*z + x*y^2*z^3 + y*z^5 - x^4*y - x^3*z^2 - x*z^4 + y*z^4 - x^3*z - x*z^3

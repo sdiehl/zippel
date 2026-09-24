@@ -1,0 +1,9 @@
+---
+source: tests/snapshots.rs
+expression: out
+input_file: tests/cases/zero.txt
+---
+gcd = 3*x^2*y - 2*y
+f/gcd = 0
+g/gcd = 2
+lcm = 0

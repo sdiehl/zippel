@@ -1,0 +1,9 @@
+---
+source: tests/snapshots.rs
+expression: out
+input_file: tests/cases/sixvars.txt
+---
+gcd = a*b*c + a^2*f + d*e*f - b*e + 1
+f/gcd = a + b + c + d + e + f
+g/gcd = -c*d + a*f + 2
+lcm = a^2*b*c^2*d + a*b^2*c^2*d + a*b*c^3*d + a*b*c^2*d^2 + a*b*c^2*d*e - a^3*b*c*f - a^2*b^2*c*f - a^2*b*c^2*f + a^3*c*d*f + a^2*c^2*d*f + a*b*c^2*d*f + a^2*c*d^2*f - a^2*b*c*e*f + a^2*c*d*e*f + a*c*d^2*e*f + b*c*d^2*e*f + c^2*d^2*e*f + c*d^3*e*f + c*d^2*e^2*f - a^4*f^2 - a^3*b*f^2 - a^3*c*f^2 - a^2*b*c*f^2 - a^3*d*f^2 + a^2*c*d*f^2 - a^3*e*f^2 - a^2*d*e*f^2 - a*b*d*e*f^2 - a*c*d*e*f^2 - a*d^2*e*f^2 + c*d^2*e*f^2 - a*d*e^2*f^2 - a^3*f^3 - a*d*e*f^3 - a*b*c*d*e - b^2*c*d*e - b*c^2*d*e - b*c*d^2*e - b*c*d*e^2 + a^2*b*e*f + a*b^2*e*f + a*b*c*e*f + a*b*d*e*f - b*c*d*e*f + a*b*e^2*f + a*b*e*f^2 - 2*a^2*b*c - 2*a*b^2*c - 2*a*b*c^2 - 2*a*b*c*d - 2*a*b*c*e - 2*a^3*f - 2*a^2*b*f - 2*a^2*c*f - 2*a*b*c*f - 2*a^2*d*f - 2*a^2*e*f - 2*a*d*e*f - 2*b*d*e*f - 2*c*d*e*f - 2*d^2*e*f - 2*d*e^2*f - 2*a^2*f^2 - 2*d*e*f^2 + a*c*d + b*c*d + c^2*d + c*d^2 + 2*a*b*e + 2*b^2*e + 2*b*c*e + 2*b*d*e + c*d*e + 2*b*e^2 - a^2*f - a*b*f - a*c*f - a*d*f + c*d*f - a*e*f + 2*b*e*f - a*f^2 - 2*a - 2*b - 2*c - 2*d - 2*e - 2*f

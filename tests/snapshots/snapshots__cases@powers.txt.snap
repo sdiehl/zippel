@@ -1,0 +1,9 @@
+---
+source: tests/snapshots.rs
+expression: out
+input_file: tests/cases/powers.txt
+---
+gcd = x^2 + 2*x*y + y^2
+f/gcd = x^2 - y^2
+g/gcd = x^2 + y^2
+lcm = x^6 + 2*x^5*y + x^4*y^2 - x^2*y^4 - 2*x*y^5 - y^6

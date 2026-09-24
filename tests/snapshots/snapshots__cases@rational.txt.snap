@@ -1,0 +1,9 @@
+---
+source: tests/snapshots.rs
+expression: out
+input_file: tests/cases/rational.txt
+---
+gcd = 2*x*y - 3*z
+f/gcd = 1/4*x + 1/6
+g/gcd = 1/4*y^2 - 1/20
+lcm = 30*x^2*y^3 + 20*x*y^3 - 45*x*y^2*z - 6*x^2*y - 30*y^2*z - 4*x*y + 9*x*z + 6*z

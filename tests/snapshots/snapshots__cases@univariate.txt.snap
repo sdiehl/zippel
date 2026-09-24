@@ -1,0 +1,9 @@
+---
+source: tests/snapshots.rs
+expression: out
+input_file: tests/cases/univariate.txt
+---
+gcd = x^2 - 1
+f/gcd = x^2 + 1
+g/gcd = x^4 + x^2 + 1
+lcm = x^8 + x^6 - x^2 - 1

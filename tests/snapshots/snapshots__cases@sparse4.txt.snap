@@ -1,0 +1,9 @@
+---
+source: tests/snapshots.rs
+expression: out
+input_file: tests/cases/sparse4.txt
+---
+gcd = x^2*y*w - y^3 + 3*z*w^2 + 7
+f/gcd = -w^3 + x*z + y
+g/gcd = x^4 + y*z*w - 2
+lcm = x^6*y*w^4 - x^7*y*z*w - x^4*y^3*w^3 + 3*x^4*z*w^5 + x^2*y^2*z*w^5 + x^5*y^3*z - x^6*y^2*w - 3*x^5*z^2*w^2 - x^3*y^2*z^2*w^2 - y^4*z*w^4 + 3*y*z^2*w^6 + x^4*y^4 + x*y^4*z^2*w - 3*x^4*y*z*w^2 - x^2*y^3*z*w^2 - 3*x*y*z^3*w^3 + y^5*z*w + 7*x^4*w^3 - 3*y^2*z^2*w^3 - 2*x^2*y*w^4 - 7*x^5*z + 2*x^3*y*z*w + 2*y^3*w^3 + 7*y*z*w^4 - 6*z*w^5 - 7*x^4*y - 2*x*y^3*z + 2*x^2*y^2*w - 7*x*y*z^2*w + 6*x*z^2*w^2 - 2*y^4 - 7*y^2*z*w + 6*y*z*w^2 - 14*w^3 + 14*x*z + 14*y

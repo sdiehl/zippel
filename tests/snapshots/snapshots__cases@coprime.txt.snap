@@ -1,0 +1,9 @@
+---
+source: tests/snapshots.rs
+expression: out
+input_file: tests/cases/coprime.txt
+---
+gcd = 1
+f/gcd = y*z^3 + x^2*y + 1
+g/gcd = x*y*z - x - 1
+lcm = x*y^2*z^4 + x^3*y^2*z - x*y*z^3 - x^3*y - y*z^3 - x^2*y + x*y*z - x - 1
