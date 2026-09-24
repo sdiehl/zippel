@@ -5,9 +5,10 @@
 //! Univariate gcd images are only known up to a scalar `m_j`; those unknowns are recovered
 //! alongside the coefficients (de Kleine, Monagan, Wittkopf 2005).
 
-use crate::modp::{inv, mul, pow, sub, Rng};
 use crate::poly::{Exps, ModPoly};
-use crate::univariate::{self as uni, Dense};
+use zippel_interp::modp::{inv, mul, pow, sub, Rng};
+use zippel_interp::univariate::{self as uni, Dense};
+use zippel_interp::vandermonde;
 
 struct Block {
     e0: u32,
@@ -154,7 +155,7 @@ impl Images {
         let mut u = vec![0; d + 1];
         for (e, c, v) in terms.iter_mut() {
             *c = mul(*c, *v, p);
-            u[*e] = crate::modp::add(u[*e], *c, p);
+            u[*e] = zippel_interp::modp::add(u[*e], *c, p);
         }
         uni::trim(&mut u);
         (uni::deg(&u) == d && !u.is_empty()).then_some(u)
@@ -243,13 +244,12 @@ fn assemble(
             .zip(scales)
             .map(|(row, &m)| mul(row[i], m, p))
             .collect();
-        let cs = vandermonde(&bl.vals, &bl.master, &w, p);
+        let cs = vandermonde::solve(&bl.vals, &bl.master, &w, p);
         let mut pw = bl.vals.clone();
         for &wj in &w {
-            let lhs = cs
-                .iter()
-                .zip(&pw)
-                .fold(0, |acc, (&c, &v)| crate::modp::add(acc, mul(c, v, p), p));
+            let lhs = cs.iter().zip(&pw).fold(0, |acc, (&c, &v)| {
+                zippel_interp::modp::add(acc, mul(c, v, p), p)
+            });
             if lhs != wj {
                 return Err(Failure::Abort);
             }
@@ -267,18 +267,4 @@ fn assemble(
     }
     let n = blocks[0].monos[0].len();
     Ok(ModPoly { n, terms })
-}
-
-/// Solve `sum_l c_l v_l^(j+1) = w_j` for `j < vals.len()` in quadratic time.
-fn vandermonde(vals: &[u64], master: &[u64], w: &[u64], p: u64) -> Vec<u64> {
-    vals.iter()
-        .map(|&v| {
-            let q = uni::div_rem(master, &[sub(0, v, p), 1], p).0;
-            let num = q
-                .iter()
-                .zip(w)
-                .fold(0, |acc, (&a, &b)| crate::modp::add(acc, mul(a, b, p), p));
-            mul(num, inv(mul(uni::eval(&q, v, p), v, p), p), p)
-        })
-        .collect()
 }

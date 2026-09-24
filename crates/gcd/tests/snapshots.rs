@@ -36,7 +36,7 @@ fn cases() {
         let lines: Vec<&str> = src.lines().collect();
         let ring = Ring::new(lines[0].split(", "), MonomialOrder::GRevLex).unwrap();
         let (f, g) = (product(&ring, lines[1]), product(&ring, lines[2]));
-        let (h, cf, cg) = tiny_zippel::cofactors(&f, &g);
+        let (h, cf, cg) = zippel_gcd::cofactors(&f, &g);
         assert_eq!(h.multiply(&cf), f);
         assert_eq!(h.multiply(&cg), g);
         let show = |p| ring.format(p).unwrap();
@@ -44,7 +44,7 @@ fn cases() {
         writeln!(out, "gcd = {}", show(&h)).unwrap();
         writeln!(out, "f/gcd = {}", show(&cf)).unwrap();
         writeln!(out, "g/gcd = {}", show(&cg)).unwrap();
-        writeln!(out, "lcm = {}", show(&tiny_zippel::lcm(&f, &g))).unwrap();
+        writeln!(out, "lcm = {}", show(&zippel_gcd::lcm(&f, &g))).unwrap();
         insta::assert_snapshot!(out);
     });
 }

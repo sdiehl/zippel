@@ -11,10 +11,8 @@
 
 mod gcd;
 mod linzip;
-mod modp;
 mod pgcd;
 mod poly;
-mod univariate;
 
 use groebner::{Monomial, Polynomial, Term};
 use num_bigint::BigInt;

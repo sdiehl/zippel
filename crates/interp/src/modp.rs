@@ -1,4 +1,6 @@
-pub(crate) const fn add(a: u64, b: u64, p: u64) -> u64 {
+//! Arithmetic modulo primes below 2^62, so sums of two residues never overflow a `u64`.
+
+pub const fn add(a: u64, b: u64, p: u64) -> u64 {
     let s = a + b;
     if s >= p {
         s - p
@@ -7,7 +9,7 @@ pub(crate) const fn add(a: u64, b: u64, p: u64) -> u64 {
     }
 }
 
-pub(crate) const fn sub(a: u64, b: u64, p: u64) -> u64 {
+pub const fn sub(a: u64, b: u64, p: u64) -> u64 {
     if a >= b {
         a - b
     } else {
@@ -15,11 +17,11 @@ pub(crate) const fn sub(a: u64, b: u64, p: u64) -> u64 {
     }
 }
 
-pub(crate) fn mul(a: u64, b: u64, p: u64) -> u64 {
+pub fn mul(a: u64, b: u64, p: u64) -> u64 {
     (u128::from(a) * u128::from(b) % u128::from(p)) as u64
 }
 
-pub(crate) fn pow(mut a: u64, mut e: u64, p: u64) -> u64 {
+pub fn pow(mut a: u64, mut e: u64, p: u64) -> u64 {
     let mut r = 1;
     while e > 0 {
         if e & 1 == 1 {
@@ -31,7 +33,7 @@ pub(crate) fn pow(mut a: u64, mut e: u64, p: u64) -> u64 {
     r
 }
 
-pub(crate) fn inv(a: u64, p: u64) -> u64 {
+pub fn inv(a: u64, p: u64) -> u64 {
     pow(a, p - 2, p)
 }
 
@@ -57,13 +59,19 @@ fn is_prime(n: u64) -> bool {
     })
 }
 
-/// Primes descending from 2^62, so sums of two residues never overflow a `u64`.
+/// Primes descending from 2^62.
 #[derive(Debug)]
-pub(crate) struct Primes(u64);
+pub struct Primes(u64);
 
 impl Primes {
-    pub(crate) const fn new() -> Self {
+    pub const fn new() -> Self {
         Self(1 << 62)
+    }
+}
+
+impl Default for Primes {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -82,14 +90,14 @@ impl Iterator for Primes {
 
 /// `SplitMix64`: deterministic, so every run and snapshot is reproducible.
 #[derive(Debug)]
-pub(crate) struct Rng(u64);
+pub struct Rng(u64);
 
 impl Rng {
-    pub(crate) const fn new(seed: u64) -> Self {
+    pub const fn new(seed: u64) -> Self {
         Self(seed)
     }
 
-    pub(crate) const fn nonzero(&mut self, p: u64) -> u64 {
+    pub const fn nonzero(&mut self, p: u64) -> u64 {
         self.0 = self.0.wrapping_add(0x9e37_79b9_7f4a_7c15);
         let mut z = self.0;
         z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);

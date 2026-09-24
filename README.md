@@ -1,12 +1,9 @@
 # tiny-zippel
 
-Sparse multivariate polynomial GCD by Zippel's modular interpolation. Works on [groebner](https://crates.io/crates/groebner) polynomials over the rationals and exposes `gcd`, `cofactors` and `lcm`.
+Sparse polynomial interpolation over finite fields, building toward Feynman integral reduction. Everything works modulo word-sized primes, and polynomials are recovered from evaluations alone.
 
-- Integer driver: integer, monomial and main-variable content removal, images modulo 62-bit primes, Garner CRT, and a final trial division that certifies the result.
-- Zippel's recursion over GF(p): dense Newton interpolation in the last variable, with the first image fixing the monomial skeleton for every later one.
-- LINZIP sparse interpolation (de Kleine, Monagan, Wittkopf 2005): evaluation at powers turns each skeleton coefficient into a transposed Vandermonde solve, with the unknown image scalings recovered alongside.
-- Unlucky primes and evaluation points are detected by comparing leading monomials and skeleton support.
-- A coprime fast path from a single univariate image.
+- `zippel-interp`: prime field arithmetic, sparse polynomials, and Zippel's black-box interpolation. Each variable is lifted in turn against the known support by transposed Vandermonde solves. Newton interpolation with early termination means no degree bounds are needed, and evaluation points the black box rejects are skipped.
+- `zippel-gcd`: multivariate GCD, cofactors and LCM of [groebner](https://crates.io/crates/groebner) polynomials over Q. It works by content removal and Zippel's recursion modulo primes with LINZIP sparse interpolation (de Kleine, Monagan, Wittkopf 2005), combining primes by Garner CRT and certifying the result by trial division.
 
 ```bash
 cargo build
@@ -14,9 +11,10 @@ cargo test
 ```
 
 ```bash
-cargo run --example demo
+cargo run -p zippel-interp --example determinant
+cargo run -p zippel-gcd --example demo
 ```
 
 ## License
 
-Released under the MIT License. See LICENSE for details.
+MIT

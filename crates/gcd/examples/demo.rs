@@ -9,12 +9,12 @@ fn main() {
     let f = common.multiply(&left);
     let g = common.multiply(&right);
 
-    let (h, cf, cg) = tiny_zippel::cofactors(&f, &g);
+    let (h, cf, cg) = zippel_gcd::cofactors(&f, &g);
     let show = |p| ring.format(p).unwrap();
     println!("f        = {}", show(&f));
     println!("g        = {}", show(&g));
     println!("gcd      = {}", show(&h));
     println!("f / gcd  = {}", show(&cf));
     println!("g / gcd  = {}", show(&cg));
-    println!("lcm      = {}", show(&tiny_zippel::lcm(&f, &g)));
+    println!("lcm      = {}", show(&zippel_gcd::lcm(&f, &g)));
 }

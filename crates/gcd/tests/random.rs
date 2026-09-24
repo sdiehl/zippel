@@ -44,12 +44,12 @@ fn common_factor_is_found() {
         let a = rng.poly(n, 6, 3);
         let b = rng.poly(n, 6, 3);
         let (f, g) = (a.multiply(&c), b.multiply(&c));
-        let (h, cf, cg) = tiny_zippel::cofactors(&f, &g);
+        let (h, cf, cg) = zippel_gcd::cofactors(&f, &g);
         assert_eq!(h.multiply(&cf), f);
         assert_eq!(h.multiply(&cg), g);
-        assert_eq!(monic(&tiny_zippel::gcd(&h, &c)), monic(&c));
+        assert_eq!(monic(&zippel_gcd::gcd(&h, &c)), monic(&c));
         if !f.is_zero() && !g.is_zero() {
-            assert!(tiny_zippel::gcd(&cf, &cg).is_constant());
+            assert!(zippel_gcd::gcd(&cf, &cg).is_constant());
         }
     }
 }
@@ -100,7 +100,7 @@ fn lcm_matches_ideal_intersection() {
             continue;
         }
         assert_eq!(
-            monic(&tiny_zippel::lcm(&f, &g)),
+            monic(&zippel_gcd::lcm(&f, &g)),
             monic(&lcm_by_elimination(&f, &g))
         );
     }

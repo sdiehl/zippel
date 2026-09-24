@@ -2,11 +2,11 @@
 //! after the first found by sparse interpolation against the first image's skeleton.
 
 use crate::linzip::linzip;
-use crate::modp::Rng;
 use crate::poly::{Exps, ModPoly};
-use crate::univariate::{self as uni, Dense};
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
+use zippel_interp::modp::Rng;
+use zippel_interp::univariate::{self as uni, Dense};
 
 /// `gcd(f, g)` up to a scalar, where only `x_0..=x_k` occur.
 pub(crate) fn pgcd(f: &ModPoly, g: &ModPoly, k: usize, p: u64, rng: &mut Rng) -> Option<ModPoly> {

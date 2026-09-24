@@ -1,14 +1,14 @@
 //! Gcd over Z: strip contents, then join Zippel images modulo word-sized primes by CRT.
 
 use crate::linzip::linzip;
-use crate::modp::{inv, mul, sub, Primes, Rng};
 use crate::pgcd::{pgcd, reshape};
 use crate::poly::{add_exps, one, Exps, IntPoly, ModPoly};
-use crate::univariate as uni;
 use num_bigint::BigInt;
 use num_integer::Integer;
 use num_traits::{One, Zero};
 use std::iter::once;
+use zippel_interp::modp::{inv, mul, sub, Primes, Rng};
+use zippel_interp::univariate as uni;
 
 /// `gcd(f, g)` up to sign.
 pub(crate) fn gcd_z(f: &IntPoly, g: &IntPoly) -> IntPoly {
@@ -82,7 +82,7 @@ fn modular(f: &IntPoly, g: &IntPoly) -> IntPoly {
     let mut last: Option<IntPoly> = None;
     for p in Primes::new() {
         let gp_ = residue(&gamma, p);
-        let (fp, gp) = (ModPoly::from_int(f, p), ModPoly::from_int(g, p));
+        let (fp, gp) = (f.reduce(p), g.reduce(p));
         if gp_ == 0 || fp.lm() != f.terms[0].0 || gp.lm() != g.terms[0].0 {
             continue;
         }
