@@ -4,7 +4,7 @@
 
 use std::cell::Cell;
 use zippel_interp::modp::{inv, mul, sub};
-use zippel_interp::{interpolate, ModPoly, Primes, Rng};
+use zippel_interp::{interpolate, Primes};
 
 const NAMES: [&str; 4] = ["x", "y", "z", "w"];
 
@@ -31,44 +31,6 @@ fn determinant(v: &[u64], p: u64) -> Option<u64> {
     Some(det)
 }
 
-/// Coefficients in the symmetric range, which shows small integers as themselves.
-fn show(f: &ModPoly, p: u64) -> String {
-    let terms = f.terms.iter().map(|(e, c)| {
-        let c = if *c > p / 2 {
-            -i128::from(p - c)
-        } else {
-            i128::from(*c)
-        };
-        let vars: Vec<String> = e
-            .iter()
-            .zip(NAMES)
-            .filter(|t| *t.0 > 0)
-            .map(|(&d, v)| {
-                if d == 1 {
-                    v.to_string()
-                } else {
-                    format!("{v}^{d}")
-                }
-            })
-            .collect();
-        let vars = vars.join("*");
-        let body = match (c.abs(), vars.is_empty()) {
-            (1, false) => vars,
-            (a, true) => a.to_string(),
-            (a, false) => format!("{a}*{vars}"),
-        };
-        (c < 0, body)
-    });
-    terms
-        .enumerate()
-        .fold(String::new(), |out, (i, (neg, t))| match (i, neg) {
-            (0, false) => t,
-            (0, true) => format!("-{t}"),
-            (_, true) => format!("{out} - {t}"),
-            (_, false) => format!("{out} + {t}"),
-        })
-}
-
 fn main() {
     let p = Primes::new().next().unwrap();
     let calls = Cell::new(0);
@@ -76,8 +38,8 @@ fn main() {
         calls.set(calls.get() + 1);
         determinant(x, p)
     };
-    let det = interpolate(&black_box, 4, p, &mut Rng::new(1)).unwrap();
-    println!("det = {}", show(&det, p));
+    let det = interpolate(&black_box, 4, p, 1).unwrap();
+    println!("det = {}", det.show(&NAMES, p));
     println!(
         "{} terms from {} numeric eliminations mod {p}",
         det.terms.len(),

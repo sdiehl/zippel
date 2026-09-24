@@ -123,4 +123,47 @@ impl ModPoly {
         self.scale(l, p);
         self
     }
+
+    /// Coefficients in the symmetric range, which shows small integers as themselves.
+    pub fn show(&self, names: &[&str], p: u64) -> String {
+        let terms = self.terms.iter().map(|(e, c)| {
+            let c = if *c > p / 2 {
+                -i128::from(p - c)
+            } else {
+                i128::from(*c)
+            };
+            let vars: Vec<String> = e
+                .iter()
+                .zip(names)
+                .filter(|t| *t.0 > 0)
+                .map(|(&d, v)| {
+                    if d == 1 {
+                        (*v).to_string()
+                    } else {
+                        format!("{v}^{d}")
+                    }
+                })
+                .collect();
+            let vars = vars.join("*");
+            let body = match (c.abs(), vars.is_empty()) {
+                (1, false) => vars,
+                (a, true) => a.to_string(),
+                (a, false) => format!("{a}*{vars}"),
+            };
+            (c < 0, body)
+        });
+        let out = terms
+            .enumerate()
+            .fold(String::new(), |out, (i, (neg, t))| match (i, neg) {
+                (0, false) => t,
+                (0, true) => format!("-{t}"),
+                (_, true) => format!("{out} - {t}"),
+                (_, false) => format!("{out} + {t}"),
+            });
+        if out.is_empty() {
+            "0".into()
+        } else {
+            out
+        }
+    }
 }

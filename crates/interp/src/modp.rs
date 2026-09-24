@@ -88,6 +88,26 @@ impl Iterator for Primes {
     }
 }
 
+const GOLDEN: u64 = 0x9e37_79b9_7f4a_7c15;
+
+const fn mix(z: u64) -> u64 {
+    let mut z = z.wrapping_add(GOLDEN);
+    z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    z ^ (z >> 31)
+}
+
+/// A hash of `key`, for deriving independent seeds from one.
+pub fn hash(key: &[u64]) -> u64 {
+    key.iter().fold(0, |h, &k| mix(h ^ k))
+}
+
+/// A nonzero residue named by `key`: asking twice gives the same point, so callers that share a
+/// key share evaluations.
+pub fn point(key: &[u64], p: u64) -> u64 {
+    1 + hash(key) % (p - 1)
+}
+
 /// `SplitMix64`: deterministic, so every run and snapshot is reproducible.
 #[derive(Debug)]
 pub struct Rng(u64);
@@ -98,10 +118,8 @@ impl Rng {
     }
 
     pub const fn nonzero(&mut self, p: u64) -> u64 {
-        self.0 = self.0.wrapping_add(0x9e37_79b9_7f4a_7c15);
-        let mut z = self.0;
-        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
-        1 + (z ^ (z >> 31)) % (p - 1)
+        let z = mix(self.0);
+        self.0 = self.0.wrapping_add(GOLDEN);
+        1 + z % (p - 1)
     }
 }

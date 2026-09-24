@@ -8,7 +8,7 @@ keywords = ["polynomial", "interpolation", "zippel", "finite-field"]
 license.workspace = true
 readme.workspace = true
 repository.workspace = true
-description = "Black-box sparse polynomial interpolation over word-sized prime fields."
+description = "Black-box sparse polynomial and rational function interpolation over word-sized prime fields."
 
 [lints]
 workspace = true
