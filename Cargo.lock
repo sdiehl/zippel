@@ -319,7 +319,7 @@ version = "0.1.0"
 dependencies = [
  "groebner",
  "insta",
- "num-bigint 0.4.8",
+ "num-bigint 0.5.1",
  "num-integer",
  "num-rational",
  "num-traits",
