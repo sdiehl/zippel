@@ -1,0 +1,29 @@
+[package]
+name = "tiny-zippel"
+version = "0.1.0"
+authors = ["Stephen Diehl <stephen.m.diehl@gmail.com>"]
+categories = ["algorithms"]
+edition = "2021"
+keywords = ["tutorial"]
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/sdiehl/tiny-zippel"
+description = "Sparse multivariate polynomial GCD by Zippel's modular interpolation."
+
+[dependencies]
+
+[[example]]
+name = "demo"
+path = "examples/demo.rs"
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+rust_2018_idioms = { level = "warn", priority = -1 }
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+cargo = { level = "warn", priority = -1 }
