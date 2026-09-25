@@ -6,6 +6,7 @@ categories.workspace = true
 edition.workspace = true
 keywords = ["ibp", "laporta", "linear-algebra", "feynman"]
 license.workspace = true
+publish = false
 readme.workspace = true
 repository.workspace = true
 description = "Sparse Laporta elimination over prime fields, learned once and replayed per sample."

@@ -6,6 +6,7 @@ categories.workspace = true
 edition.workspace = true
 keywords = ["rational-reconstruction", "crt", "interpolation", "algebra"]
 license.workspace = true
+publish = false
 readme.workspace = true
 repository.workspace = true
 description = "Rational functions over Q from prime field black boxes by CRT and rational number reconstruction."
