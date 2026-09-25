@@ -61,6 +61,9 @@ I(2,2) = (d^2 - 9*d + 18) / (s^2) * I(1,1)
 - K. G. Chetyrkin, F. V. Tkachov, _Integration by parts: The algorithm to calculate beta-functions in 4 loops_, Nucl. Phys. B 192 (1981).
 - S. Laporta, _High-precision calculation of multi-loop Feynman integrals by difference equations_, Int. J. Mod. Phys. A 15 (2000), [arXiv:hep-ph/0102033](https://arxiv.org/abs/hep-ph/0102033).
 - J. Klappert, F. Lange, _Reconstructing rational functions with FireFly_, Comput. Phys. Commun. 247 (2020), [arXiv:1904.00009](https://arxiv.org/abs/1904.00009).
+- J. Klappert, F. Lange, P. Maierhöfer, J. Usovitsch, _Integral reduction with Kira 2.0 and finite field methods_, Comput. Phys. Commun. 266 (2021), [arXiv:2008.06494](https://arxiv.org/abs/2008.06494).
+- X. Guan, X. Liu, Y.-Q. Ma, W.-H. Wu, _Blade: A package for block-triangular form improved Feynman integrals decomposition_, [arXiv:2405.14621](https://arxiv.org/abs/2405.14621).
+- F. Lange, J. Usovitsch, Z. Wu, _Kira 3: integral reduction with efficient seeding and optimized equation selection_, [arXiv:2505.20197](https://arxiv.org/abs/2505.20197).
 
 ## License
 
