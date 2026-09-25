@@ -2,23 +2,26 @@
 mod families;
 
 use zippel_interp::{Primes, Rng};
-use zippel_laporta::{ibp::Index, Plan, Row};
+use zippel_laporta::{
+    ibp::{Family, Index},
+    Plan, Row,
+};
 
-fn reduce(system: &zippel_laporta::ibp::System, targets: &[Index]) -> String {
-    let (plan, coefficients) = system.reduce(targets, 1).unwrap();
+fn reduce(family: &Family, targets: &[Index], dots: i32, numerators: i32) -> String {
+    let (system, plan, coefficients) = family.reduce(targets, dots, numerators).unwrap();
     system.render(&plan, &coefficients)
 }
 
 #[test]
 fn reduces_the_bubble() {
     let targets = [[2, 1], [2, 2], [3, 1], [3, 0], [1, -1]].map(|a| a.to_vec());
-    insta::assert_snapshot!(reduce(&families::bubble().system(2, 1), &targets));
+    insta::assert_snapshot!(reduce(&families::bubble(), &targets, 2, 1));
 }
 
 #[test]
 fn reduces_the_box() {
     let targets = [[2, 1, 1, 1], [2, 2, 1, 1], [1, 1, 2, 1], [2, 1, 1, 0]].map(|a| a.to_vec());
-    insta::assert_snapshot!(reduce(&families::one_loop_box().system(2, 2), &targets));
+    insta::assert_snapshot!(reduce(&families::one_loop_box(), &targets, 2, 2));
 }
 
 #[test]
@@ -29,7 +32,7 @@ fn reduces_the_double_box() {
         [2, 1, 1, 1, 1, 1, 1, 0, 0],
     ]
     .map(|a| a.to_vec());
-    insta::assert_snapshot!(reduce(&families::double_box().system(1, 1), &targets));
+    insta::assert_snapshot!(reduce(&families::double_box(), &targets, 1, 1));
 }
 
 /// The trimmed replay agrees with eliminating everything from scratch at each new point.

@@ -1,6 +1,6 @@
 ---
 source: crates/laporta/tests/families.rs
-expression: "reduce(&families::double_box().system(1, 1), &targets)"
+expression: "reduce(&families::double_box(), &targets, 1, 1)"
 ---
 I(1,1,1,1,1,1,1,-1,0) = (1) * I(1,1,1,1,1,1,1,0,-1)
 I(1,1,1,1,1,1,1,0,-1) = (1) * I(1,1,1,1,1,1,1,0,-1)

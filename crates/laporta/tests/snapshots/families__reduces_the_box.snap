@@ -1,6 +1,6 @@
 ---
 source: crates/laporta/tests/families.rs
-expression: "reduce(&families::one_loop_box().system(2, 2), &targets)"
+expression: "reduce(&families::one_loop_box(), &targets, 2, 2)"
 ---
 I(2,1,1,1) = (4*d^2 - 32*d + 60) / (d*s*t^2 - 6*s*t^2) * I(0,1,0,1)
     + (-d + 5) / (s) * I(1,1,1,1)

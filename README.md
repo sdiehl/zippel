@@ -1,6 +1,6 @@
 # zippel
 
-Sparse polynomial interpolation over finite fields, building toward Feynman integral reduction. Everything works modulo word-sized primes, and polynomials are recovered from evaluations alone.
+Feynman integral reduction by sparse interpolation over finite fields. IBP systems are eliminated numerically modulo word-sized primes, and the exact rational coefficients are recovered from evaluations alone.
 
 - [`zippel-interp`](crates/interp): Zippel's black-box sparse polynomial interpolation over prime fields.
 - [`zippel-interp::rational`](crates/interp/src/rational.rs): Rational function reconstruction via Thiele and Zippel.
@@ -41,8 +41,7 @@ let bubble = Family {
     legs: vec![vec![vec![0, 0, 2]]], // 2 q.q = 2s
     symmetries: vec![vec![1, 0]],
 };
-let system = bubble.system(2, 0);
-let (plan, coefficients) = system.reduce(&[vec![2, 1], vec![2, 2]], 1).unwrap();
+let (system, plan, coefficients) = bubble.reduce(&[vec![2, 1], vec![2, 2]], 2, 0).unwrap();
 print!("{}", system.render(&plan, &coefficients));
 ```
 

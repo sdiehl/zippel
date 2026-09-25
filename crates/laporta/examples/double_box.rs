@@ -6,23 +6,18 @@ use std::time::Instant;
 
 fn main() {
     let start = Instant::now();
-    let system = families::double_box().system(1, 1);
     let targets = [
         [1, 1, 1, 1, 1, 1, 1, -1, 0],
         [1, 1, 1, 1, 1, 1, 1, 0, -1],
         [2, 1, 1, 1, 1, 1, 1, 0, 0],
     ]
     .map(|a| a.to_vec());
-    println!(
-        "{} equations in {} integrals, {:.0?}",
-        system.len(),
-        system.integrals.len(),
-        start.elapsed()
-    );
-    let (plan, coefficients) = system.reduce(&targets, 1).unwrap();
+    let (system, plan, coefficients) = families::double_box().reduce(&targets, 1, 1).unwrap();
     print!("{}", system.render(&plan, &coefficients));
     println!(
-        "\n{} masters, {} kept after learning, {:.0?}",
+        "\n{} equations in {} integrals, {} masters, {} kept after learning, {:.0?}",
+        system.len(),
+        system.integrals.len(),
         plan.masters.len(),
         plan.len(),
         start.elapsed()

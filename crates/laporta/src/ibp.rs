@@ -51,6 +51,7 @@ struct Expr {
 pub struct System {
     pub integrals: Vec<Index>,
     pub vars: Vec<&'static str>,
+    seeds: BTreeSet<Index>,
     columns: BTreeMap<Index, usize>,
     eqs: Vec<Vec<(usize, Lin)>>,
 }
@@ -154,25 +155,93 @@ impl Family {
         })
     }
 
-    /// Identities seeded at every index with at most `dots` extra powers on its lines and
-    /// `numerators` powers of numerators, in every sector, plus the symmetries.
+    /// The family with the kinematic variable `name` set to `value`, one fewer to reconstruct.
+    /// Setting a scale to 1 loses nothing, since dimensional analysis puts it back.
+    #[must_use]
+    pub fn fix(mut self, name: &str, value: i64) -> Self {
+        let k = 1 + self
+            .vars
+            .iter()
+            .position(|&v| v == name)
+            .expect("a variable");
+        assert!(k > 1, "d stays symbolic");
+        let sub = |l: &mut Lin| {
+            if l.len() > k {
+                l[0] += l[k] * value;
+                l.remove(k);
+            }
+        };
+        self.props.iter_mut().for_each(|(_, m)| sub(m));
+        self.legs.iter_mut().flatten().for_each(sub);
+        self.vars.remove(k - 1);
+        self
+    }
+
+    /// Reduces `targets` to masters. Seeds carry fewer dots and numerators the fewer lines their
+    /// sector has, up to `dots` and `numerators` in the top sector, and a sector is widened
+    /// whenever one of its integrals comes out a master without being a seed, the mark of an
+    /// identity missing there.
+    pub fn reduce(
+        &self,
+        targets: &[Index],
+        dots: i32,
+        numerators: i32,
+    ) -> Option<(System, Plan, Vec<Fraction>)> {
+        let mut extra = BTreeMap::new();
+        loop {
+            let system = self.seeded(dots, numerators, &extra);
+            let plan = system.learn(targets, 1);
+            let mut widened = false;
+            for &m in &plan.masters {
+                let a = &system.integrals[m];
+                let w = extra.entry(self.sector(a)).or_insert(0);
+                if !system.seeds.contains(a) && *w < dots.max(numerators) {
+                    *w += 1;
+                    widened = true;
+                }
+            }
+            if !widened {
+                let coefficients = system.lift(&plan, 1)?;
+                return Some((system, plan, coefficients));
+            }
+        }
+    }
+
+    fn sector(&self, a: &[i32]) -> u32 {
+        (0..self.lines).filter(|&m| a[m] > 0).map(|m| 1 << m).sum()
+    }
+
+    /// Identities seeded at every index with up to `dots` extra powers on its lines and
+    /// `numerators` powers of numerators in every sector, plus the symmetries.
     pub fn system(&self, dots: i32, numerators: i32) -> System {
+        let full = (1..1u32 << self.lines)
+            .map(|s| (s, dots.max(numerators)))
+            .collect();
+        self.seeded(dots, numerators, &full)
+    }
+
+    fn seeded(&self, dots: i32, numerators: i32, extra: &BTreeMap<u32, i32>) -> System {
         let n = self.props.len();
         let table = self.derivatives();
         let mut raw: Vec<BTreeMap<Index, Form>> = Vec::new();
+        let mut all = BTreeSet::new();
         for sector in 1..1u32 << self.lines {
             let (on, off): (Vec<usize>, Vec<usize>) =
                 (0..n).partition(|&m| m < self.lines && sector >> m & 1 == 1);
+            let level = -i32::try_from(self.lines - on.len()).unwrap();
+            let widen = extra.get(&sector).copied().unwrap_or(0);
+            let trim = |max: i32| max.min(max.min(1).max(max + level) + widen);
             let mut seeds = Vec::new();
-            for up in compositions(on.len(), dots) {
-                for down in compositions(off.len(), numerators) {
+            for up in compositions(on.len(), trim(dots)) {
+                for down in compositions(off.len(), trim(numerators)) {
                     let mut a = vec![0; n];
                     on.iter().zip(&up).for_each(|(&m, &x)| a[m] = 1 + x);
                     off.iter().zip(&down).for_each(|(&m, &x)| a[m] = -x);
                     seeds.push(a);
                 }
             }
-            for a in seeds.iter().filter(|a| self.nonzero(a)) {
+            seeds.retain(|a| self.nonzero(a));
+            for a in &seeds {
                 for (i, row) in table.iter().enumerate() {
                     for (j, ds) in row.iter().enumerate() {
                         let mut eq = BTreeMap::new();
@@ -200,6 +269,7 @@ impl Family {
                     }
                 }
             }
+            all.extend(seeds);
         }
         let mut seen: BTreeSet<Index> = raw.iter().flat_map(|eq| eq.keys().cloned()).collect();
         for a in seen.clone() {
@@ -245,6 +315,7 @@ impl Family {
         System {
             integrals,
             vars: self.vars.clone(),
+            seeds: all,
             columns,
             eqs,
         }
@@ -351,21 +422,24 @@ impl System {
             .collect()
     }
 
-    /// Learns at a random point, then lifts every coefficient to Q from replays.
-    pub fn reduce(&self, targets: &[Index], seed: u64) -> Option<(Plan, Vec<Fraction>)> {
+    /// Eliminates everything at a random point and keeps what `targets` need.
+    pub fn learn(&self, targets: &[Index], seed: u64) -> Plan {
         let targets: Vec<usize> = targets.iter().map(|t| self.column(t)).collect();
-        let p = Primes::new().next()?;
+        let p = Primes::new().next().unwrap();
         let x: Vec<u64> = (0..self.vars.len() as u64)
             .map(|i| point(&[seed, 7, i], p))
             .collect();
         let rows: Vec<Row> = (0..self.len()).map(|e| self.row(e, &x, p)).collect();
-        let plan = Plan::learn(&rows, &targets, p);
-        let coefficients = lift(
+        Plan::learn(&rows, &targets, p)
+    }
+
+    /// Every coefficient of `plan`, lifted to Q from replays.
+    pub fn lift(&self, plan: &Plan, seed: u64) -> Option<Vec<Fraction>> {
+        lift(
             |x: &[u64], p| plan.replay(|e| self.row(e, x, p), p),
             self.vars.len(),
             seed,
-        )?;
-        Some((plan, coefficients))
+        )
     }
 
     pub fn name(&self, j: usize) -> String {

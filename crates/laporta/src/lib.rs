@@ -33,7 +33,11 @@ impl Plan {
     pub fn learn(rows: &[Row], targets: &[usize], p: u64) -> Self {
         // Simplest equations first, so pivots are found before they are needed to reduce others.
         let mut order: Vec<usize> = (0..rows.len()).collect();
-        order.sort_by_key(|&i| (rows[i].iter().map(|t| t.0).max(), rows[i].len()));
+        order.sort_by_cached_key(|&i| {
+            let mut cols: Vec<usize> = rows[i].iter().map(|t| t.0).collect();
+            cols.sort_unstable_by(|a, b| b.cmp(a));
+            (cols.first().copied(), cols.len(), cols)
+        });
         let mut ech = Echelon::default();
         let mut origin = BTreeMap::new();
         for (k, &i) in order.iter().enumerate() {

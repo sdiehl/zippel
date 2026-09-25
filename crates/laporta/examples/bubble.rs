@@ -6,10 +6,9 @@ mod families;
 use std::time::Instant;
 
 fn main() {
-    let system = families::bubble().system(2, 1);
     let targets = [[2, 1], [2, 2], [3, 1], [3, 0], [1, -1]].map(|a| a.to_vec());
     let start = Instant::now();
-    let (plan, coefficients) = system.reduce(&targets, 1).unwrap();
+    let (system, plan, coefficients) = families::bubble().reduce(&targets, 2, 1).unwrap();
     print!("{}", system.render(&plan, &coefficients));
     println!(
         "\n{} equations in {} integrals, {} kept after learning, {:.0?}",

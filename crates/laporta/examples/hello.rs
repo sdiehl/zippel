@@ -12,7 +12,6 @@ fn main() {
         legs: vec![vec![vec![0, 0, 2]]], // 2 q.q = 2s
         symmetries: vec![vec![1, 0]],
     };
-    let system = bubble.system(2, 0);
-    let (plan, coefficients) = system.reduce(&[vec![2, 1], vec![2, 2]], 1).unwrap();
+    let (system, plan, coefficients) = bubble.reduce(&[vec![2, 1], vec![2, 2]], 2, 0).unwrap();
     print!("{}", system.render(&plan, &coefficients));
 }
