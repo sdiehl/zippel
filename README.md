@@ -17,6 +17,7 @@ cargo test
 ```bash
 cargo run -p zippel-interp --example determinant
 cargo run -p zippel-interp --example linsolve
+cargo run -p zippel-laporta --example hello
 cargo run -p zippel-laporta --example bubble
 cargo run --release -p zippel-laporta --example box
 cargo run --release -p zippel-laporta --example double_box
@@ -25,7 +26,26 @@ cargo run -p zippel-gcd --example demo
 
 ## Example
 
-<Insert hello feynamnn minmal example here>
+The massless one-loop bubble with dots, reduced to its master integral:
+
+```rust
+let bubble = Family {
+    vars: vec!["d", "s"],
+    loops: 1,
+    props: vec![(vec![1, 0], vec![]), (vec![1, 1], vec![])], // k^2, (k + q)^2
+    lines: 2,
+    legs: vec![vec![vec![0, 0, 2]]], // 2 q.q = 2s
+    symmetries: vec![vec![1, 0]],
+};
+let system = bubble.system(2, 0);
+let (plan, coefficients) = system.reduce(&[vec![2, 1], vec![2, 2]], 1).unwrap();
+print!("{}", system.render(&plan, &coefficients));
+```
+
+```
+I(2,1) = (-d + 3) / (s) * I(1,1)
+I(2,2) = (d^2 - 9*d + 18) / (s^2) * I(1,1)
+```
 
 ## References
 
