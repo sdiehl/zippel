@@ -2,9 +2,11 @@
 
 Sparse polynomial interpolation over finite fields, building toward Feynman integral reduction. Everything works modulo word-sized primes, and polynomials are recovered from evaluations alone.
 
-- `zippel-interp`: prime field arithmetic, sparse polynomials, and Zippel's black-box interpolation. Each variable is lifted in turn against the known support by transposed Vandermonde solves. Newton interpolation with early termination means no degree bounds are needed, and evaluation points the black box rejects are skipped.
-- `zippel-interp::rational`: black-box rational functions, after FireFly (Klappert, Lange 2019). Along rays `x = t*z + s`, Thiele's continued fraction recovers the univariate function of `t`, normalized so the denominator is 1 at `t = 0`. The `t^r` coefficients are the homogeneous parts of the numerator and denominator, recovered top down by Zippel with the shift's spill from higher parts subtracted. Points are named by key rather than drawn from a stream, so all parts share their rays.
-- `zippel-gcd`: multivariate GCD, cofactors and LCM of [groebner](https://crates.io/crates/groebner) polynomials over Q. It works by content removal and Zippel's recursion modulo primes with LINZIP sparse interpolation (de Kleine, Monagan, Wittkopf 2005), combining primes by Garner CRT and certifying the result by trial division.
+- [`zippel-interp`](crates/interp): Zippel's black-box sparse polynomial interpolation over prime fields.
+- [`zippel-interp::rational`](crates/interp/src/rational.rs): FireFly-style rational function reconstruction via Thiele and Zippel.
+- [`zippel-lift`](crates/lift): Lifts to Q by CRT and rational number reconstruction.
+- [`zippel-laporta`](crates/laporta): Laporta elimination over GF(p), learned once and replayed.
+- [`zippel-gcd`](crates/gcd): Multivariate GCD, cofactors and LCM of [groebner](https://crates.io/crates/groebner) polynomials via LINZIP.
 
 ```bash
 cargo build
@@ -14,8 +16,18 @@ cargo test
 ```bash
 cargo run -p zippel-interp --example determinant
 cargo run -p zippel-interp --example linsolve
+cargo run -p zippel-laporta --example bubble
 cargo run -p zippel-gcd --example demo
 ```
+
+## References
+
+- R. Zippel, _Probabilistic algorithms for sparse polynomials_, EUROSAM 1979.
+- R. Zippel, _Interpolating polynomials from their values_, J. Symbolic Comput. 9 (1990).
+- J. de Kleine, M. Monagan, A. Wittkopf, _Algorithms for the non-monic case of the sparse modular GCD algorithm_, ISSAC 2005.
+- P. S. Wang, M. J. T. Guy, J. H. Davenport, _P-adic reconstruction of rational numbers_, SIGSAM Bull. 16 (1982).
+- S. Laporta, _High-precision calculation of multi-loop Feynman integrals by difference equations_, Int. J. Mod. Phys. A 15 (2000), [arXiv:hep-ph/0102033](https://arxiv.org/abs/hep-ph/0102033).
+- J. Klappert, F. Lange, _Reconstructing rational functions with FireFly_, Comput. Phys. Commun. 247 (2020), [arXiv:1904.00009](https://arxiv.org/abs/1904.00009).
 
 ## License
 

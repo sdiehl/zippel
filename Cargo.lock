@@ -369,3 +369,27 @@ dependencies = [
 [[package]]
 name = "zippel-interp"
 version = "0.1.0"
+
+[[package]]
+name = "zippel-laporta"
+version = "0.1.0"
+dependencies = [
+ "groebner",
+ "insta",
+ "num-rational",
+ "zippel-interp",
+ "zippel-lift",
+]
+
+[[package]]
+name = "zippel-lift"
+version = "0.1.0"
+dependencies = [
+ "groebner",
+ "insta",
+ "num-bigint 0.4.8",
+ "num-integer",
+ "num-rational",
+ "num-traits",
+ "zippel-interp",
+]

@@ -1,0 +1,23 @@
+[package]
+name = "zippel-laporta"
+version.workspace = true
+authors.workspace = true
+categories.workspace = true
+edition.workspace = true
+keywords = ["ibp", "laporta", "linear-algebra", "feynman"]
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+description = "Sparse Laporta elimination over prime fields, learned once and replayed per sample."
+
+[dependencies]
+zippel-interp.workspace = true
+
+[dev-dependencies]
+groebner.workspace = true
+insta.workspace = true
+num-rational.workspace = true
+zippel-lift.workspace = true
+
+[lints]
+workspace = true

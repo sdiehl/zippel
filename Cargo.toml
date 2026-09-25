@@ -19,6 +19,7 @@ num-integer = "0.1"
 num-rational = "0.4"
 num-traits = "0.2"
 zippel-interp = { path = "crates/interp", version = "0.1.0" }
+zippel-lift = { path = "crates/lift", version = "0.1.0" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
