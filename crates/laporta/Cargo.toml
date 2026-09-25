@@ -11,6 +11,10 @@ readme.workspace = true
 repository.workspace = true
 description = "Sparse Laporta elimination over prime fields, learned once and replayed per sample."
 
+[features]
+default = ["parallel"]
+parallel = ["zippel-interp/parallel", "zippel-lift/parallel"]
+
 [dependencies]
 groebner.workspace = true
 num-integer.workspace = true

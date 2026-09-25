@@ -10,6 +10,10 @@ readme.workspace = true
 repository.workspace = true
 description = "Sparse multivariate polynomial GCD by Zippel's modular interpolation."
 
+[features]
+default = ["parallel"]
+parallel = ["zippel-interp/parallel"]
+
 [dependencies]
 groebner.workspace = true
 num-bigint.workspace = true

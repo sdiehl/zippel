@@ -24,6 +24,7 @@ use num_bigint::BigInt;
 use num_integer::Integer;
 use num_rational::BigRational;
 use num_traits::{One, Zero};
+#[cfg(feature = "parallel")]
 use rayon::prelude::*;
 use zippel_interp::modp::{add, inv, mul, point, pow, sub};
 use zippel_interp::{reconstruct, Exps, Primes, RatFunc};
@@ -130,8 +131,11 @@ fn fit(
     let xs: Vec<Vec<u64>> = (0..need as u64 + need as u64 / 8 + 2)
         .map(|i| (0..n as u64).map(|j| point(&[seed, 6, i, j], p)).collect())
         .collect();
-    let samples: Vec<(&Vec<u64>, Vec<u64>)> =
-        xs.par_iter().filter_map(|x| Some((x, f(x, p)?))).collect();
+    #[cfg(feature = "parallel")]
+    let xs = xs.par_iter();
+    #[cfg(not(feature = "parallel"))]
+    let xs = xs.iter();
+    let samples: Vec<(&Vec<u64>, Vec<u64>)> = xs.filter_map(|x| Some((x, f(x, p)?))).collect();
     let monomial = |e: &Exps, x: &[u64]| {
         e.iter()
             .zip(x)

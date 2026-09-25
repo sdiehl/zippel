@@ -11,13 +11,17 @@ readme.workspace = true
 repository.workspace = true
 description = "Rational functions over Q from prime field black boxes by CRT and rational number reconstruction."
 
+[features]
+default = ["parallel"]
+parallel = ["dep:rayon", "zippel-interp/parallel"]
+
 [dependencies]
 groebner.workspace = true
 num-bigint.workspace = true
 num-integer.workspace = true
 num-rational.workspace = true
 num-traits.workspace = true
-rayon.workspace = true
+rayon = { workspace = true, optional = true }
 zippel-interp.workspace = true
 
 [dev-dependencies]

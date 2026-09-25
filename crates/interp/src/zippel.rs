@@ -8,6 +8,7 @@
 //! Every point is named by `(seed, stage, index)` rather than drawn from a stream, so two
 //! interpolations with one seed ask the same questions for as long as their shapes agree.
 
+#[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
 use crate::modp::{add, hash, mul, point, pow};
@@ -31,6 +32,7 @@ impl<F: Fn(&[u64], u64) -> Option<u64> + Sync> BlackBox for F {
         self(x, p)
     }
 
+    #[cfg(feature = "parallel")]
     fn eval_many(&self, xs: &[Vec<u64>], p: u64) -> Vec<Option<u64>> {
         xs.par_iter().map(|x| self(x, p)).collect()
     }

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Optional `parallel` feature, on by default, gates rayon.
+
 ## 0.1.0
 
 Initial release.
