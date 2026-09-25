@@ -1,4 +1,4 @@
-# tiny-zippel
+# zippel
 
 Sparse polynomial interpolation over finite fields, building toward Feynman integral reduction. Everything works modulo word-sized primes, and polynomials are recovered from evaluations alone.
 
@@ -26,7 +26,11 @@ cargo run -p zippel-gcd --example demo
 
 ## Example
 
-The massless one-loop bubble with dots, reduced to its master integral:
+The massless one-loop bubble with dots, reduced to its master integral $I(1,1)$, where
+
+$$
+I(a_1, a_2) = \int \frac{d^d k}{(k^2)^{a_1} \, ((k + q)^2)^{a_2}}, \qquad q^2 = s.
+$$
 
 ```rust
 let bubble = Family {
