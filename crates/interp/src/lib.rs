@@ -8,6 +8,7 @@
     clippy::module_name_repetitions
 )]
 
+pub mod benor;
 pub mod modp;
 pub mod poly;
 pub mod rational;

@@ -16,6 +16,7 @@ num-bigint.workspace = true
 num-integer.workspace = true
 num-rational.workspace = true
 num-traits.workspace = true
+rayon.workspace = true
 zippel-interp.workspace = true
 
 [dev-dependencies]

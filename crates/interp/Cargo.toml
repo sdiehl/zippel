@@ -10,5 +10,8 @@ readme.workspace = true
 repository.workspace = true
 description = "Black-box sparse polynomial and rational function interpolation over word-sized prime fields."
 
+[dependencies]
+rayon.workspace = true
+
 [lints]
 workspace = true

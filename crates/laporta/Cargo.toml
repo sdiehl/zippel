@@ -11,13 +11,15 @@ repository.workspace = true
 description = "Sparse Laporta elimination over prime fields, learned once and replayed per sample."
 
 [dependencies]
+groebner.workspace = true
+num-integer.workspace = true
+num-rational.workspace = true
+num-traits.workspace = true
 zippel-interp.workspace = true
+zippel-lift.workspace = true
 
 [dev-dependencies]
-groebner.workspace = true
 insta.workspace = true
-num-rational.workspace = true
-zippel-lift.workspace = true
 
 [lints]
 workspace = true

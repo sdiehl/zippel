@@ -17,11 +17,26 @@ pub const fn sub(a: u64, b: u64, p: u64) -> u64 {
     }
 }
 
-pub fn mul(a: u64, b: u64, p: u64) -> u64 {
-    (u128::from(a) * u128::from(b) % u128::from(p)) as u64
+const TOP: u64 = 1 << 62;
+
+/// For the primes just below `2^62` that [`Primes`] yields, `2^62 = c (mod p)` with `c` small, so
+/// folding the high bits twice replaces the 128-bit division.
+pub const fn mul(a: u64, b: u64, p: u64) -> u64 {
+    let x = a as u128 * b as u128;
+    let c = TOP - p;
+    if c >= 1 << 20 {
+        return (x % p as u128) as u64;
+    }
+    let y = (x >> 62) * c as u128 + (x as u64 & (TOP - 1)) as u128;
+    let z = (y >> 62) as u64 * c + (y as u64 & (TOP - 1));
+    if z >= p {
+        z - p
+    } else {
+        z
+    }
 }
 
-pub fn pow(mut a: u64, mut e: u64, p: u64) -> u64 {
+pub const fn pow(mut a: u64, mut e: u64, p: u64) -> u64 {
     let mut r = 1;
     while e > 0 {
         if e & 1 == 1 {
@@ -33,7 +48,7 @@ pub fn pow(mut a: u64, mut e: u64, p: u64) -> u64 {
     r
 }
 
-pub fn inv(a: u64, p: u64) -> u64 {
+pub const fn inv(a: u64, p: u64) -> u64 {
     pow(a, p - 2, p)
 }
 
@@ -65,7 +80,7 @@ pub struct Primes(u64);
 
 impl Primes {
     pub const fn new() -> Self {
-        Self(1 << 62)
+        Self(TOP)
     }
 }
 

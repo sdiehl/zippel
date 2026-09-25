@@ -2,7 +2,7 @@
 //! reconstructing IBP reduction coefficients from numeric linear solves.
 #![allow(clippy::many_single_char_names)]
 
-use std::cell::Cell;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use zippel_interp::modp::{inv, mul, sub};
 use zippel_interp::{interpolate, Primes};
 
@@ -33,9 +33,9 @@ fn determinant(v: &[u64], p: u64) -> Option<u64> {
 
 fn main() {
     let p = Primes::new().next().unwrap();
-    let calls = Cell::new(0);
+    let calls = AtomicUsize::new(0);
     let black_box = |x: &[u64], p| {
-        calls.set(calls.get() + 1);
+        calls.fetch_add(1, Ordering::Relaxed);
         determinant(x, p)
     };
     let det = interpolate(&black_box, 4, p, 1).unwrap();
@@ -43,6 +43,6 @@ fn main() {
     println!(
         "{} terms from {} numeric eliminations mod {p}",
         det.terms.len(),
-        calls.get()
+        calls.load(Ordering::Relaxed)
     );
 }

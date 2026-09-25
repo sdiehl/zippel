@@ -3,7 +3,7 @@
 //! kinematics recovered from numeric solves.
 #![allow(clippy::many_single_char_names)]
 
-use std::cell::Cell;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use zippel_interp::modp::{add, inv, mul, sub};
 use zippel_interp::{reconstruct, Primes};
 
@@ -34,9 +34,9 @@ fn solve(v: &[u64], p: u64) -> Option<u64> {
 
 fn main() {
     let p = Primes::new().next().unwrap();
-    let calls = Cell::new(0);
+    let calls = AtomicUsize::new(0);
     let black_box = |x: &[u64], p| {
-        calls.set(calls.get() + 1);
+        calls.fetch_add(1, Ordering::Relaxed);
         solve(x, p)
     };
     let r = reconstruct(&black_box, 3, p, 1).unwrap();
@@ -45,5 +45,8 @@ fn main() {
         r.num.show(&NAMES, p),
         r.den.show(&NAMES, p)
     );
-    println!("from {} numeric solves mod {p}", calls.get());
+    println!(
+        "from {} numeric solves mod {p}",
+        calls.load(Ordering::Relaxed)
+    );
 }

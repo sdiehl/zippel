@@ -8,8 +8,8 @@
 //! part is a sparse polynomial for Zippel. Every part asks the same points, so each ray is
 //! reconstructed once.
 
-use std::cell::RefCell;
 use std::collections::HashMap;
+use std::sync::Mutex;
 
 use crate::modp::{add, hash, inv, mul, point, sub};
 use crate::poly::ModPoly;
@@ -27,7 +27,7 @@ type Ray = Option<(Dense, Dense)>;
 
 /// The rational function in `n` variables behind `f`, in lowest terms with the leading
 /// coefficient of the denominator 1. Monte Carlo, like [`interpolate`].
-pub fn reconstruct(f: &impl BlackBox, n: usize, p: u64, seed: u64) -> Option<RatFunc> {
+pub fn reconstruct(f: &(impl BlackBox + Sync), n: usize, p: u64, seed: u64) -> Option<RatFunc> {
     (0..3).find_map(|attempt| {
         let seed = hash(&[seed, attempt]);
         let r = if n == 0 {
@@ -51,10 +51,10 @@ struct Shifted<'a, F> {
     p: u64,
     seed: u64,
     s: Vec<u64>,
-    rays: RefCell<HashMap<Vec<u64>, Ray>>,
+    rays: Mutex<HashMap<Vec<u64>, Ray>>,
 }
 
-impl<F: BlackBox> Shifted<'_, F> {
+impl<F: BlackBox + Sync> Shifted<'_, F> {
     fn new(f: &F, n: usize, p: u64, seed: u64) -> Shifted<'_, F> {
         let s = (0..n as u64).map(|i| point(&[seed, 0, i], p)).collect();
         Shifted {
@@ -63,7 +63,7 @@ impl<F: BlackBox> Shifted<'_, F> {
             p,
             seed,
             s,
-            rays: RefCell::default(),
+            rays: Mutex::default(),
         }
     }
 
@@ -82,9 +82,10 @@ impl<F: BlackBox> Shifted<'_, F> {
         Some(r)
     }
 
-    /// `f(t*z + s)` for `z = (1, y)` as `num / den` with `den(0) = 1`, once per ray.
+    /// `f(t*z + s)` for `z = (1, y)` as `num / den` with `den(0) = 1`, once per ray. Rays
+    /// asked together run on separate threads.
     fn ray(&self, y: &[u64]) -> Ray {
-        if let Some(r) = self.rays.borrow().get(y) {
+        if let Some(r) = self.rays.lock().unwrap().get(y) {
             return r.clone();
         }
         let z = ray_dir(y);
@@ -107,7 +108,7 @@ impl<F: BlackBox> Shifted<'_, F> {
                 .for_each(|c| *c = mul(*c, l, p));
             Some((num, den))
         });
-        self.rays.borrow_mut().insert(y.to_vec(), ray.clone());
+        self.rays.lock().unwrap().insert(y.to_vec(), ray.clone());
         ray
     }
 

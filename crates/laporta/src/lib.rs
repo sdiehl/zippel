@@ -8,16 +8,17 @@
 #![allow(
     clippy::must_use_candidate,
     clippy::missing_panics_doc,
+    clippy::multiple_crate_versions,
     clippy::many_single_char_names
 )]
 
-use std::collections::{BTreeMap, BTreeSet};
+pub mod ibp;
+
+use std::collections::{BTreeMap, BTreeSet, BinaryHeap};
 use zippel_interp::modp::{add, inv, mul, sub};
 
 /// A sparse equation `sum c_j * u_j = 0` as `(j, c_j)` pairs.
 pub type Row = Vec<(usize, u64)>;
-
-type Sparse = BTreeMap<usize, u64>;
 
 #[derive(Clone, Debug)]
 pub struct Plan {
@@ -30,33 +31,33 @@ pub struct Plan {
 impl Plan {
     /// Eliminates the whole system at one sample and keeps what `targets` need.
     pub fn learn(rows: &[Row], targets: &[usize], p: u64) -> Self {
+        // Simplest equations first, so pivots are found before they are needed to reduce others.
+        let mut order: Vec<usize> = (0..rows.len()).collect();
+        order.sort_by_key(|&i| (rows[i].iter().map(|t| t.0).max(), rows[i].len()));
         let mut ech = Echelon::default();
         let mut origin = BTreeMap::new();
-        for (i, row) in rows.iter().enumerate() {
-            if let Some(c) = ech.insert(row, p) {
-                origin.insert(c, i);
+        for (k, &i) in order.iter().enumerate() {
+            if let Some(c) = ech.insert(&rows[i], p) {
+                origin.insert(c, (k, i));
             }
         }
-        ech.back_substitute(p);
+        let mut masters = BTreeSet::new();
+        let mut stack = Vec::new();
+        for &t in targets {
+            let (solution, used) = ech.solve(t, p);
+            masters.extend(solution.iter().map(|m| m.0));
+            stack.extend(used);
+        }
         let mut needed = BTreeSet::new();
-        let mut stack: Vec<usize> = targets.to_vec();
         while let Some(c) = stack.pop() {
-            if let Some(uses) = ech.uses.get(&c).filter(|_| needed.insert(c)) {
-                stack.extend(uses);
+            if needed.insert(c) {
+                stack.extend(&ech.uses[c]);
             }
         }
-        let kept: BTreeMap<usize, usize> = needed.iter().map(|c| (origin[c], *c)).collect();
-        let masters = targets
-            .iter()
-            .flat_map(|t| {
-                ech.rows.get(t).map_or_else(
-                    || vec![*t],
-                    |r| r.keys().copied().filter(|k| k != t).collect(),
-                )
-            })
-            .collect::<BTreeSet<_>>();
+        let kept: BTreeMap<(usize, usize), usize> =
+            needed.iter().map(|c| (origin[c], *c)).collect();
         Self {
-            eqs: kept.keys().copied().collect(),
+            eqs: kept.keys().map(|k| k.1).collect(),
             pivots: kept.values().copied().collect(),
             targets: targets.to_vec(),
             masters: masters.into_iter().collect(),
@@ -81,84 +82,101 @@ impl Plan {
                 return None;
             }
         }
-        ech.back_substitute(p);
-        let coefficient = |t: &usize, m: &usize| {
-            ech.rows.get(t).map_or_else(
-                || u64::from(t == m),
-                |r| sub(0, r.get(m).copied().unwrap_or(0), p),
-            )
-        };
-        Some(
-            self.targets
-                .iter()
-                .flat_map(|t| self.masters.iter().map(move |m| coefficient(t, m)))
-                .collect(),
-        )
+        let mut out = vec![0; self.targets.len() * self.masters.len()];
+        for (&t, chunk) in self
+            .targets
+            .iter()
+            .zip(out.chunks_mut(self.masters.len().max(1)))
+        {
+            for (m, v) in ech.solve(t, p).0 {
+                chunk[self.masters.binary_search(&m).ok()?] = v;
+            }
+        }
+        Some(out)
     }
 }
 
-/// Monic rows keyed by leading column, and the pivots each row was reduced by.
+/// Monic rows by leading column, the pivots each was reduced by, and a dense scratch row.
 #[derive(Debug, Default)]
 struct Echelon {
-    rows: BTreeMap<usize, Sparse>,
-    uses: BTreeMap<usize, Vec<usize>>,
+    rows: Vec<Option<Row>>,
+    uses: Vec<Vec<usize>>,
+    acc: Vec<u64>,
+    live: Vec<bool>,
 }
 
 impl Echelon {
+    fn grow(&mut self, c: usize) {
+        if c >= self.acc.len() {
+            self.rows.resize(c + 1, None);
+            self.uses.resize(c + 1, Vec::new());
+            self.acc.resize(c + 1, 0);
+            self.live.resize(c + 1, false);
+        }
+    }
+
+    /// Reduces `row` column by column from the top: by every pivot if `full`, else only until
+    /// the leading column has none. The remaining terms, descending, and the pivots used.
+    fn reduce(&mut self, row: &[(usize, u64)], full: bool, p: u64) -> (Row, Vec<usize>) {
+        let mut heap = BinaryHeap::new();
+        for &(c, v) in row {
+            self.grow(c);
+            self.acc[c] = add(self.acc[c], v, p);
+            if !self.live[c] {
+                self.live[c] = true;
+                heap.push(c);
+            }
+        }
+        let Self {
+            rows, acc, live, ..
+        } = self;
+        let (mut out, mut used) = (Row::new(), Vec::new());
+        while let Some(c) = heap.pop() {
+            live[c] = false;
+            let v = std::mem::take(&mut acc[c]);
+            match &rows[c] {
+                _ if v == 0 => {}
+                Some(pivot) if full || out.is_empty() => {
+                    used.push(c);
+                    for &(k, x) in &pivot[1..] {
+                        acc[k] = sub(acc[k], mul(v, x, p), p);
+                        if !live[k] {
+                            live[k] = true;
+                            heap.push(k);
+                        }
+                    }
+                }
+                _ => out.push((c, v)),
+            }
+        }
+        (out, used)
+    }
+
     /// Reduces `row` until its leading column has no pivot and makes it one. `None` if the row
     /// vanished, being a consequence of the rows before it.
-    fn insert(&mut self, row: &Row, p: u64) -> Option<usize> {
-        let mut r = Sparse::new();
-        for &(c, v) in row {
-            let e = r.entry(c).or_insert(0);
-            *e = add(*e, v, p);
-        }
-        r.retain(|_, v| *v != 0);
-        let mut used = Vec::new();
-        let (c, v) = loop {
-            let (&c, &v) = r.last_key_value()?;
-            let Some(pivot) = self.rows.get(&c) else {
-                break (c, v);
-            };
-            axpy(&mut r, pivot, v, p);
-            used.push(c);
-        };
+    fn insert(&mut self, row: &[(usize, u64)], p: u64) -> Option<usize> {
+        let (mut r, used) = self.reduce(row, false, p);
+        let (c, v) = *r.first()?;
         let l = inv(v, p);
-        for x in r.values_mut() {
-            *x = mul(*x, l, p);
+        for t in &mut r {
+            t.1 = mul(t.1, l, p);
         }
-        self.rows.insert(c, r);
-        self.uses.insert(c, used);
+        self.rows[c] = Some(r);
+        self.uses[c] = used;
         Some(c)
     }
 
-    /// Clears every pivot below the leading one, lowest rows first, leaving only masters.
-    fn back_substitute(&mut self, p: u64) {
-        let cols: Vec<usize> = self.rows.keys().copied().collect();
-        for c in cols {
-            let mut r = self.rows.remove(&c).unwrap();
-            let lower: Vec<usize> = r
-                .range(..c)
-                .map(|(&k, _)| k)
-                .filter(|k| self.rows.contains_key(k))
-                .collect();
-            for &k in &lower {
-                let v = r[&k];
-                axpy(&mut r, &self.rows[&k], v, p);
-            }
-            self.uses.get_mut(&c).unwrap().extend(lower);
-            self.rows.insert(c, r);
+    /// Column `t` as a combination of columns without a pivot, the masters, and the pivots used.
+    fn solve(&mut self, t: usize, p: u64) -> (Row, Vec<usize>) {
+        self.grow(t);
+        let Some(row) = self.rows[t].clone() else {
+            return (vec![(t, 1)], Vec::new());
+        };
+        let (mut r, mut used) = self.reduce(&row[1..], true, p);
+        for m in &mut r {
+            m.1 = sub(0, m.1, p);
         }
-    }
-}
-
-/// `r -= v * s`.
-fn axpy(r: &mut Sparse, s: &Sparse, v: u64, p: u64) {
-    for (&c, &x) in s {
-        let e = r.entry(c).or_insert(0);
-        *e = sub(*e, mul(v, x, p), p);
-        if *e == 0 {
-            r.remove(&c);
-        }
+        used.push(t);
+        (r, used)
     }
 }

@@ -8,6 +8,8 @@
 //! Every point is named by `(seed, stage, index)` rather than drawn from a stream, so two
 //! interpolations with one seed ask the same questions for as long as their shapes agree.
 
+use rayon::prelude::*;
+
 use crate::modp::{add, hash, mul, point, pow};
 use crate::poly::{Exps, ModPoly};
 use crate::univariate::Newton;
@@ -17,16 +19,28 @@ use crate::vandermonde;
 /// evaluation broke down (a vanishing pivot, say) and should be avoided.
 pub trait BlackBox {
     fn eval(&self, x: &[u64], p: u64) -> Option<u64>;
+
+    /// Independent points at once, which an implementation may spread over threads.
+    fn eval_many(&self, xs: &[Vec<u64>], p: u64) -> Vec<Option<u64>> {
+        xs.iter().map(|x| self.eval(x, p)).collect()
+    }
 }
 
-impl<F: Fn(&[u64], u64) -> Option<u64>> BlackBox for F {
+impl<F: Fn(&[u64], u64) -> Option<u64> + Sync> BlackBox for F {
     fn eval(&self, x: &[u64], p: u64) -> Option<u64> {
         self(x, p)
+    }
+
+    fn eval_many(&self, xs: &[Vec<u64>], p: u64) -> Vec<Option<u64>> {
+        xs.par_iter().map(|x| self(x, p)).collect()
     }
 }
 
 /// Points tried per variable before giving up on a degree.
 const MAX_POINTS: usize = 1 << 12;
+
+/// Points evaluated together when the next one depends on the last, at the risk of a few extra.
+const BATCH: u64 = 8;
 
 /// The polynomial in `n` variables behind `f`, or `None` if it looks like no polynomial of
 /// degree below `MAX_POINTS` in each variable. Monte Carlo, with error probability about
@@ -45,12 +59,11 @@ pub fn interpolate(f: &impl BlackBox, n: usize, p: u64, seed: u64) -> Option<Mod
 
 /// Dense interpolation in `x_0` with every other variable at the anchor.
 fn first(f: &impl BlackBox, anchor: &[u64], p: u64, seed: u64) -> Option<ModPoly> {
-    let mut x = anchor.to_vec();
-    if x.is_empty() {
+    if anchor.is_empty() {
         return Some(ModPoly {
             n: 0,
             terms: f
-                .eval(&x, p)
+                .eval(&[], p)
                 .filter(|&c| c != 0)
                 .map(|c| (vec![], c))
                 .into_iter()
@@ -58,9 +71,21 @@ fn first(f: &impl BlackBox, anchor: &[u64], p: u64, seed: u64) -> Option<ModPoly
         });
     }
     let mut newton = Newton::default();
-    for i in 0..MAX_POINTS as u64 {
-        x[0] = point(&[seed, 1, i], p);
-        let Some(y) = f.eval(&x, p).filter(|_| !newton.contains(x[0])) else {
+    let points = (0..MAX_POINTS as u64)
+        .step_by(BATCH as usize)
+        .flat_map(|start| {
+            let xs: Vec<Vec<u64>> = (start..start + BATCH)
+                .map(|i| {
+                    let mut x = anchor.to_vec();
+                    x[0] = point(&[seed, 1, i], p);
+                    x
+                })
+                .collect();
+            let ys = f.eval_many(&xs, p);
+            xs.into_iter().zip(ys)
+        });
+    for (x, y) in points {
+        let Some(y) = y.filter(|_| !newton.contains(x[0])) else {
             continue;
         };
         if !newton.add(x[0], y, p) && newton.len() > 1 {
@@ -106,21 +131,23 @@ fn lift(
         if newton[0].contains(x[k]) {
             continue;
         }
-        let mut w = Vec::with_capacity(t + 1);
         x[..k].fill(1);
-        for _ in 0..=t {
-            x[..k]
-                .iter_mut()
-                .zip(&r)
-                .for_each(|(xi, &ri)| *xi = mul(*xi, ri, p));
-            match f.eval(&x, p) {
-                Some(y) => w.push(y),
-                None => break,
-            }
-        }
-        if w.len() <= t {
+        let xs: Vec<Vec<u64>> = (0..=t)
+            .map(|_| {
+                x[..k]
+                    .iter_mut()
+                    .zip(&r)
+                    .for_each(|(xi, &ri)| *xi = mul(*xi, ri, p));
+                x.clone()
+            })
+            .collect();
+        let Some(w) = f
+            .eval_many(&xs, p)
+            .into_iter()
+            .collect::<Option<Vec<u64>>>()
+        else {
             continue;
-        }
+        };
         let c = vandermonde::solve(&vals, &master, &w[..t], p);
         let e = t as u64 + 1;
         let check = c
