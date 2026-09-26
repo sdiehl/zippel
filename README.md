@@ -31,7 +31,7 @@ cargo run -p zippel-gcd --example demo
 The massless one-loop bubble with dots, reduced to its master integral $I(1,1)$, where
 
 $$
-I(a_1, a_2) = \int \frac{d^d k}{(k^2)^{a_1} \, ((k + q)^2)^{a_2}}, \qquad q^2 = s.
+I(a_1, a_2) = \int \frac{d^d k}{(k^2)^{a_1} ((k + q)^2)^{a_2}}, \qquad q^2 = s.
 $$
 
 <p align="center">
