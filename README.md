@@ -34,6 +34,13 @@ $$
 I(a_1, a_2) = \int \frac{d^d k}{(k^2)^{a_1} \, ((k + q)^2)^{a_2}}, \qquad q^2 = s.
 $$
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/bubble-dark.svg">
+    <img src=".github/bubble.svg" alt="One-loop bubble" width="360">
+  </picture>
+</p>
+
 ```rust
 let bubble = Family {
     vars: vec!["d", "s"],
