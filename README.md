@@ -42,6 +42,8 @@ $$
 </p>
 
 ```rust
+use zippel_laporta::ibp::Family;
+
 let bubble = Family {
     vars: vec!["d", "s"],
     loops: 1,
@@ -54,7 +56,7 @@ let (system, plan, coefficients) = bubble.reduce(&[vec![2, 1], vec![2, 2]], 2, 0
 print!("{}", system.render(&plan, &coefficients));
 ```
 
-```
+```text
 I(2,1) = (-d + 3) / (s) * I(1,1)
 I(2,2) = (d^2 - 9*d + 18) / (s^2) * I(1,1)
 ```

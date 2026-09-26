@@ -14,6 +14,10 @@
 
 pub mod ibp;
 
+#[cfg(doctest)]
+#[doc = include_str!("../../../README.md")]
+struct ReadmeDoctests;
+
 use std::collections::{BTreeMap, BTreeSet, BinaryHeap};
 use zippel_interp::modp::{add, inv, mul, sub};
 
