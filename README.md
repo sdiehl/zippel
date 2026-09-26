@@ -1,13 +1,15 @@
 # zippel
 
-Feynman integral reduction by sparse interpolation over finite fields. IBP systems are eliminated numerically modulo word-sized primes, and the exact rational coefficients are recovered from evaluations alone.
+A bunch libraries to support doing Feynman integral reduction by sparse interpolation over finite fields in Rust.
 
-- [`zippel-interp`](crates/interp): Zippel's black-box sparse polynomial interpolation over prime fields.
-- [`zippel-interp::rational`](crates/interp/src/rational.rs): Rational function reconstruction via Thiele and Zippel.
-- [`zippel-interp::benor`](crates/interp/src/benor.rs): Ben-Or/Tiwari interpolation from about two evaluations per term.
-- [`zippel-lift`](crates/lift): Lifts to Q by CRT and rational number reconstruction.
-- [`zippel-laporta`](crates/laporta): IBP generation and Laporta elimination over GF(p), replayed per sample.
-- [`zippel-gcd`](crates/gcd): Multivariate GCD, cofactors and LCM of [groebner](https://crates.io/crates/groebner) polynomials via LINZIP.
+IBP systems are eliminated numerically modulo word-sized primes, and the exact rational coefficients are recovered from evaluations alone.
+
+- [`zippel-interp`](crates/interp): Zippel's black-box sparse polynomial interpolation over prime fields
+- [`zippel-interp::rational`](crates/interp/src/rational.rs): Rational function reconstruction ala the method of Thiele and Zippel
+- [`zippel-interp::benor`](crates/interp/src/benor.rs): Ben-Or/Tiwari interpolation from about two evaluations per term
+- [`zippel-lift`](crates/lift): Lifts to Q by CRT and rational number reconstruction
+- [`zippel-laporta`](crates/laporta): IBP generation and Laporta elimination over GF(p)
+- [`zippel-gcd`](crates/gcd): Multivariate GCD, cofactors and LCM of [groebner](https://crates.io/crates/groebner) polynomials via LINZIP
 
 ```bash
 cargo build
@@ -67,4 +69,4 @@ I(2,2) = (d^2 - 9*d + 18) / (s^2) * I(1,1)
 
 ## License
 
-MIT
+Released under the MIT License. See the [LICENSE](LICENSE) file for details.
