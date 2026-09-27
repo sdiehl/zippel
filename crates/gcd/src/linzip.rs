@@ -6,9 +6,11 @@
 //! alongside the coefficients (de Kleine, Monagan, Wittkopf 2005).
 
 use crate::poly::{Exps, ModPoly};
-use zippel_interp::modp::{inv, mul, pow, sub, Rng};
-use zippel_interp::univariate::{self as uni, Dense};
-use zippel_interp::vandermonde;
+use polycore::interp::{master, solve};
+use polycore::modp::{add, inv, mul, pow, sub};
+use polycore::sample::Rng;
+use polycore::{Fp, Modular};
+use zippel_interp::{dense, Dense};
 
 struct Block {
     e0: u32,
@@ -67,13 +69,14 @@ fn attempt(
     loop {
         while coeffs.len() < s {
             let h = images.next().ok_or(Failure::Retry)?;
-            if uni::deg(&h) != deg0 {
-                return Err(if uni::deg(&h) > deg0 {
+            if h.deg() != deg0 {
+                return Err(if h.deg() > deg0 {
                     Failure::Retry
                 } else {
                     Failure::Abort
                 });
             }
+            let h: Vec<u64> = h.0.iter().map(|c| c.residue_mod(p)).collect();
             let expected = h.iter().filter(|&&c| c != 0).count();
             let row: Vec<u64> = blocks.iter().map(|bl| h[bl.e0 as usize]).collect();
             if row.iter().filter(|&&c| c != 0).count() != expected {
@@ -104,7 +107,7 @@ fn blocks(skeleton: &[Exps], value: &impl Fn(&Exps) -> u64, p: u64) -> Result<Ve
                 e0: e[0],
                 monos: Vec::new(),
                 vals: Vec::new(),
-                master: vec![1],
+                master: Dense::zero(),
             });
         }
         let bl = out.last_mut().expect("just pushed");
@@ -118,9 +121,7 @@ fn blocks(skeleton: &[Exps], value: &impl Fn(&Exps) -> u64, p: u64) -> Result<Ve
         if sorted.len() != bl.vals.len() {
             return Err(Failure::Retry);
         }
-        bl.master = bl.vals.iter().fold(vec![1], |acc, &v| {
-            uni::mul_poly(&acc, &[sub(0, v, p), 1], p)
-        });
+        bl.master = master(&fps(&bl.vals, p));
     }
     Ok(out)
 }
@@ -155,16 +156,16 @@ impl Images {
         let mut u = vec![0; d + 1];
         for (e, c, v) in terms.iter_mut() {
             *c = mul(*c, *v, p);
-            u[*e] = zippel_interp::modp::add(u[*e], *c, p);
+            u[*e] = add(u[*e], *c, p);
         }
-        uni::trim(&mut u);
-        (uni::deg(&u) == d && !u.is_empty()).then_some(u)
+        let u = dense(u, p);
+        (u.deg() == d && !u.is_zero()).then_some(u)
     }
 
     fn next(&mut self) -> Option<Dense> {
         let uf = Self::step(&mut self.f, self.df, self.p)?;
         let ug = Self::step(&mut self.g, self.dg, self.p)?;
-        Some(uni::gcd(&uf, &ug, self.p))
+        Some(uf.gcd(&ug))
     }
 }
 
@@ -196,8 +197,8 @@ fn solve_scales(blocks: &[Block], coeffs: &[Vec<u64>], p: u64) -> Scales {
         let n = bl.monos.len();
         for shift in 0..s - n {
             let mut row = vec![0; s];
-            for (t, &pt) in bl.master.iter().enumerate() {
-                row[shift + t] = mul(pt, coeffs[shift + t][i], p);
+            for (t, pt) in bl.master.0.iter().enumerate() {
+                row[shift + t] = mul(pt.residue_mod(p), coeffs[shift + t][i], p);
             }
             rows.push(row);
         }
@@ -244,12 +245,14 @@ fn assemble(
             .zip(scales)
             .map(|(row, &m)| mul(row[i], m, p))
             .collect();
-        let cs = vandermonde::solve(&bl.vals, &bl.master, &w, p);
+        let cs = solve(&fps(&bl.vals, p), &bl.master, &fps(&w, p));
+        let cs: Vec<u64> = cs.iter().map(|c| c.residue_mod(p)).collect();
         let mut pw = bl.vals.clone();
         for &wj in &w {
-            let lhs = cs.iter().zip(&pw).fold(0, |acc, (&c, &v)| {
-                zippel_interp::modp::add(acc, mul(c, v, p), p)
-            });
+            let lhs = cs
+                .iter()
+                .zip(&pw)
+                .fold(0, |acc, (&c, &v)| add(acc, mul(c, v, p), p));
             if lhs != wj {
                 return Err(Failure::Abort);
             }
@@ -267,4 +270,8 @@ fn assemble(
     }
     let n = blocks[0].monos[0].len();
     Ok(ModPoly { n, terms })
+}
+
+fn fps(v: &[u64], p: u64) -> Vec<Fp> {
+    v.iter().map(|&x| Fp::new(x, p)).collect()
 }

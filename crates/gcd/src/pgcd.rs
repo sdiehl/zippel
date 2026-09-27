@@ -3,29 +3,32 @@
 
 use crate::linzip::linzip;
 use crate::poly::{Exps, ModPoly};
+use polycore::interp::Newton;
+use polycore::sample::Rng;
+use polycore::{Fp, Modular};
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
-use zippel_interp::modp::Rng;
-use zippel_interp::univariate::{self as uni, Dense};
+use zippel_interp::Dense;
 
 /// `gcd(f, g)` up to a scalar, where only `x_0..=x_k` occur.
 pub(crate) fn pgcd(f: &ModPoly, g: &ModPoly, k: usize, p: u64, rng: &mut Rng) -> Option<ModPoly> {
     if k == 0 {
-        let h = uni::gcd(&f.eval_except(0, &[], p), &g.eval_except(0, &[], p), p);
-        return Some(ModPoly::from_groups(f.n, 0, vec![(vec![0; f.n], h)]));
+        let h = f.eval_except(0, &[], p).gcd(&g.eval_except(0, &[], p));
+        return Some(ModPoly::from_groups(f.n, 0, vec![(vec![0; f.n], h)], p));
     }
     let (cf, f) = f.primitive(k, p);
     let (cg, g) = g.primitive(k, p);
-    let content = uni::gcd(&cf, &cg, p);
-    let lf = f.groups(k).swap_remove(0).1;
-    let lg = g.groups(k).swap_remove(0).1;
-    let gamma = uni::gcd(&lf, &lg, p);
-    let need = degree_bound(&f, &g, k, p, rng)? + uni::deg(&gamma) + 1;
+    let content = cf.gcd(&cg);
+    let lf = f.groups(k, p).swap_remove(0).1;
+    let lg = g.groups(k, p).swap_remove(0).1;
+    let gamma = lf.gcd(&lg);
+    let need = degree_bound(&f, &g, k, p, rng)? + gamma.deg() + 1;
 
     let mut images = Accumulator::default();
     for _ in 0..4 * need + 16 {
         let a = rng.nonzero(p);
-        if uni::eval(&lf, a, p) == 0 || uni::eval(&lg, a, p) == 0 || images.points.contains(&a) {
+        let at = |d: &Dense| d.eval(&Fp::new(a, p)).residue_mod(p);
+        if at(&lf) == 0 || at(&lg) == 0 || images.points.contains(&a) {
             continue;
         }
         let (fa, ga) = (f.eval_var(k, a, p), g.eval_var(k, a, p));
@@ -37,16 +40,16 @@ pub(crate) fn pgcd(f: &ModPoly, g: &ModPoly, k: usize, p: u64, rng: &mut Rng) ->
         let Some(h) = sparse.or_else(|| pgcd(&fa, &ga, k - 1, p, rng)) else {
             continue;
         };
-        images.offer(a, h, uni::eval(&gamma, a, p), p);
+        images.offer(a, h, at(&gamma), p);
         if images.points.len() == need {
             let groups = images.interpolate(p);
-            let h = ModPoly::from_groups(f.n, k, groups).primitive(k, p).1;
+            let h = ModPoly::from_groups(f.n, k, groups, p).primitive(k, p).1;
             let groups = h
-                .groups(k)
+                .groups(k, p)
                 .into_iter()
-                .map(|(e, d)| (e, uni::mul_poly(&d, &content, p)))
+                .map(|(e, d)| (e, &d * &content))
                 .collect();
-            return Some(ModPoly::from_groups(f.n, k, groups));
+            return Some(ModPoly::from_groups(f.n, k, groups, p));
         }
     }
     None
@@ -57,8 +60,7 @@ fn degree_bound(f: &ModPoly, g: &ModPoly, k: usize, p: u64, rng: &mut Rng) -> Op
     (0..8).find_map(|_| {
         let point: Vec<u64> = (0..f.n).map(|_| rng.nonzero(p)).collect();
         let (uf, ug) = (f.eval_except(k, &point, p), g.eval_except(k, &point, p));
-        (uni::deg(&uf) == f.degree(k) && uni::deg(&ug) == g.degree(k))
-            .then(|| uni::deg(&uni::gcd(&uf, &ug, p)))
+        (uf.deg() == f.degree(k) && ug.deg() == g.degree(k)).then(|| uf.gcd(&ug).deg())
     })
 }
 
@@ -87,18 +89,24 @@ impl Accumulator {
     }
 
     fn interpolate(&self, p: u64) -> Vec<(Exps, Dense)> {
-        let mut values: BTreeMap<&Exps, Vec<u64>> = BTreeMap::new();
+        let mut values: BTreeMap<&Exps, Vec<Fp>> = BTreeMap::new();
         for (j, h) in self.images.iter().enumerate() {
             for (e, c) in &h.terms {
                 values
                     .entry(e)
-                    .or_insert_with(|| vec![0; self.images.len()])[j] = *c;
+                    .or_insert_with(|| vec![Fp::new(0, p); self.images.len()])[j] = Fp::new(*c, p);
             }
         }
         values
             .into_iter()
             .rev()
-            .map(|(e, ys)| (e.clone(), uni::interpolate(&self.points, &ys, p)))
+            .map(|(e, ys)| {
+                let mut nw = Newton::default();
+                for (&x, y) in self.points.iter().zip(ys) {
+                    nw.add(Fp::new(x, p), y);
+                }
+                (e.clone(), nw.poly())
+            })
             .collect()
     }
 }

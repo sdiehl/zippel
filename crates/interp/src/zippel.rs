@@ -8,35 +8,11 @@
 //! Every point is named by `(seed, stage, index)` rather than drawn from a stream, so two
 //! interpolations with one seed ask the same questions for as long as their shapes agree.
 
-#[cfg(feature = "parallel")]
-use rayon::prelude::*;
-
-use crate::modp::{add, hash, mul, point, pow};
 use crate::poly::{Exps, ModPoly};
-use crate::univariate::Newton;
-use crate::vandermonde;
-
-/// A polynomial known only through evaluation modulo `p`. `None` marks a point where the
-/// evaluation broke down (a vanishing pivot, say) and should be avoided.
-pub trait BlackBox {
-    fn eval(&self, x: &[u64], p: u64) -> Option<u64>;
-
-    /// Independent points at once, which an implementation may spread over threads.
-    fn eval_many(&self, xs: &[Vec<u64>], p: u64) -> Vec<Option<u64>> {
-        xs.iter().map(|x| self.eval(x, p)).collect()
-    }
-}
-
-impl<F: Fn(&[u64], u64) -> Option<u64> + Sync> BlackBox for F {
-    fn eval(&self, x: &[u64], p: u64) -> Option<u64> {
-        self(x, p)
-    }
-
-    #[cfg(feature = "parallel")]
-    fn eval_many(&self, xs: &[Vec<u64>], p: u64) -> Vec<Option<u64>> {
-        xs.par_iter().map(|x| self(x, p)).collect()
-    }
-}
+use polycore::interp::{master, solve, Newton};
+use polycore::modp::{add, mul, pow};
+use polycore::sample::{hash, point, BlackBox};
+use polycore::{Fp, Modular};
 
 /// Points tried per variable before giving up on a degree.
 const MAX_POINTS: usize = 1 << 12;
@@ -87,21 +63,13 @@ fn first(f: &impl BlackBox, anchor: &[u64], p: u64, seed: u64) -> Option<ModPoly
             xs.into_iter().zip(ys)
         });
     for (x, y) in points {
-        let Some(y) = y.filter(|_| !newton.contains(x[0])) else {
+        let x0 = Fp::new(x[0], p);
+        let Some(y) = y.filter(|_| !newton.contains(&x0)) else {
             continue;
         };
-        if !newton.add(x[0], y, p) && newton.len() > 1 {
-            let d = newton.poly(p);
-            let mut terms = Vec::new();
-            for (i, &c) in d.iter().enumerate().rev().filter(|t| *t.1 != 0) {
-                let mut e = vec![0; anchor.len()];
-                e[0] = i as u32;
-                terms.push((e, c));
-            }
-            return Some(ModPoly {
-                n: anchor.len(),
-                terms,
-            });
+        if !newton.add(x0, Fp::new(y, p)) && newton.len() > 1 {
+            let n = anchor.len();
+            return Some(assemble(n, 0, &[vec![0; n]], &[newton], p));
         }
     }
     None
@@ -122,15 +90,17 @@ fn lift(
         return Some(h.clone());
     }
     let (r, vals) = distinct_values(&skeleton, k, p, seed)?;
-    let master = vandermonde::master(&vals, p);
-    let mut newton: Vec<Newton> = vec![Newton::default(); t];
+    let vals: Vec<Fp> = vals.iter().map(|&v| Fp::new(v, p)).collect();
+    let master = master(&vals);
+    let mut newton: Vec<Newton<Fp>> = vec![Newton::default(); t];
     for (nw, (_, c)) in newton.iter_mut().zip(&h.terms) {
-        nw.add(anchor[k], *c, p);
+        nw.add(Fp::new(anchor[k], p), Fp::new(*c, p));
     }
     let mut x = anchor.to_vec();
     for i in 0..MAX_POINTS as u64 {
         x[k] = point(&[seed, 2, k as u64, i], p);
-        if newton[0].contains(x[k]) {
+        let xk = Fp::new(x[k], p);
+        if newton[0].contains(&xk) {
             continue;
         }
         x[..k].fill(1);
@@ -146,22 +116,26 @@ fn lift(
         let Some(w) = f
             .eval_many(&xs, p)
             .into_iter()
-            .collect::<Option<Vec<u64>>>()
+            .map(|y| y.map(|y| Fp::new(y, p)))
+            .collect::<Option<Vec<Fp>>>()
         else {
             continue;
         };
-        let c = vandermonde::solve(&vals, &master, &w[..t], p);
+        let c = solve(&vals, &master, &w[..t]);
         let e = t as u64 + 1;
-        let check = c
-            .iter()
-            .zip(&vals)
-            .fold(0, |acc, (&ci, &v)| add(acc, mul(ci, pow(v, e, p), p), p));
-        if check != w[t] {
+        let check = c.iter().zip(&vals).fold(0, |acc, (ci, v)| {
+            add(
+                acc,
+                mul(ci.residue_mod(p), pow(v.residue_mod(p), e, p), p),
+                p,
+            )
+        });
+        if check != w[t].residue_mod(p) {
             return None;
         }
         let mut changed = false;
         for (nw, ci) in newton.iter_mut().zip(c) {
-            changed |= nw.add(x[k], ci, p);
+            changed |= nw.add(xk, ci);
         }
         if !changed {
             return Some(assemble(h.n, k, &skeleton, &newton, p));
@@ -191,15 +165,10 @@ fn distinct_values(skeleton: &[Exps], k: usize, p: u64, seed: u64) -> Option<(Ve
     })
 }
 
-fn assemble(n: usize, k: usize, skeleton: &[Exps], newton: &[Newton], p: u64) -> ModPoly {
-    let mut terms = Vec::new();
-    for (e, nw) in skeleton.iter().zip(newton) {
-        let d = nw.poly(p);
-        for (i, &c) in d.iter().enumerate().rev().filter(|t| *t.1 != 0) {
-            let mut e = e.clone();
-            e[k] = i as u32;
-            terms.push((e, c));
-        }
-    }
-    ModPoly { n, terms }
+fn assemble(n: usize, k: usize, skeleton: &[Exps], newton: &[Newton<Fp>], p: u64) -> ModPoly {
+    let groups = skeleton
+        .iter()
+        .cloned()
+        .zip(newton.iter().map(Newton::poly));
+    ModPoly::from_groups(n, k, groups.collect(), p)
 }

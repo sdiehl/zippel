@@ -3,8 +3,9 @@
 mod common;
 
 use common::{random_poly, unlucky};
-use zippel_interp::modp::{inv, mul};
-use zippel_interp::{reconstruct, ModPoly, Primes, RatFunc, Rng};
+use polycore::modp::{inv, mul, Primes};
+use polycore::sample::Rng;
+use zippel_interp::{reconstruct, ModPoly, RatFunc};
 
 /// `num / den` as a black box that fails at poles, normalized as `reconstruct` returns it.
 fn quotient(

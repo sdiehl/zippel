@@ -11,11 +11,14 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use crate::modp::{add, hash, inv, mul, point, sub};
-use crate::poly::ModPoly;
-use crate::thiele;
-use crate::univariate::{self as uni, Dense};
-use crate::zippel::{interpolate, BlackBox};
+use crate::poly::{dense, Dense, ModPoly};
+use crate::zippel::interpolate;
+use polycore::interp::Thiele;
+use polycore::modp::{add, inv, mul, sub};
+use polycore::sample::{hash, point, BlackBox};
+use polycore::{Fp, Modular};
+
+const MAX_POINTS: u64 = 1 << 12;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RatFunc {
@@ -91,7 +94,7 @@ impl<F: BlackBox + Sync> Shifted<'_, F> {
         let z = ray_dir(y);
         let mut x = vec![0; self.n];
         let p = self.p;
-        let ray = thiele::reconstruct(
+        let ray = thiele(
             |t| {
                 for ((xi, &zi), &si) in x.iter_mut().zip(&z).zip(&self.s) {
                     *xi = add(mul(t, zi, p), si, p);
@@ -101,12 +104,9 @@ impl<F: BlackBox + Sync> Shifted<'_, F> {
             p,
             hash(&[self.seed, 2]),
         )
-        .and_then(|(mut num, mut den)| {
-            let l = inv(*den.first().filter(|&&d| d != 0)?, p);
-            num.iter_mut()
-                .chain(&mut den)
-                .for_each(|c| *c = mul(*c, l, p));
-            Some((num, den))
+        .and_then(|(num, den)| {
+            let l = den.0.first()?.try_inverse()?;
+            Some((num.scale(&l), den.scale(&l)))
         });
         self.rays.lock().unwrap().insert(y.to_vec(), ray.clone());
         ray
@@ -114,13 +114,16 @@ impl<F: BlackBox + Sync> Shifted<'_, F> {
 
     /// Numerator or denominator, one homogeneous part at a time from the top degree down.
     fn side(&self, first: &(Dense, Dense), pick: fn(&(Dense, Dense)) -> &Dense) -> Option<ModPoly> {
-        let shape = (first.0.len(), first.1.len());
+        let shape = (first.0 .0.len(), first.1 .0.len());
         let mut known = constant(self.n, 0);
-        for r in (0..pick(first).len()).rev() {
+        for r in (0..pick(first).0.len()).rev() {
             let part = |y: &[u64], p| {
-                let ray = self.ray(y).filter(|(a, b)| (a.len(), b.len()) == shape)?;
+                let ray = self
+                    .ray(y)
+                    .filter(|(a, b)| (a.0.len(), b.0.len()) == shape)?;
                 let spill = self.spill(&known, &ray_dir(y));
-                Some(sub(pick(&ray)[r], spill.get(r).copied().unwrap_or(0), p))
+                let at = |d: &Dense| d.0.get(r).map_or(0, |c| c.residue_mod(p));
+                Some(sub(at(pick(&ray)), at(&spill), p))
             };
             let h = interpolate(&part, self.n - 1, self.p, hash(&[self.seed, 3]))?;
             for (e, c) in h.terms {
@@ -137,21 +140,40 @@ impl<F: BlackBox + Sync> Shifted<'_, F> {
     /// `g(t*z + s)` as a polynomial in `t`.
     fn spill(&self, g: &ModPoly, z: &[u64]) -> Dense {
         let p = self.p;
-        let mut out = Dense::new();
+        let mut out = Dense::zero();
         for (e, c) in &g.terms {
-            let mut term = vec![*c];
+            let mut term = dense([*c], p);
             for ((&d, &zi), &si) in e.iter().zip(z).zip(&self.s) {
+                let line = dense([si, zi], p);
                 for _ in 0..d {
-                    term = uni::mul_poly(&term, &[si, zi], p);
+                    term = &term * &line;
                 }
             }
-            out.resize(out.len().max(term.len()), 0);
-            for (a, b) in out.iter_mut().zip(term) {
-                *a = add(*a, b, p);
-            }
+            out = &out + &term;
         }
         out
     }
+}
+
+/// The rational function behind `g` by Thiele interpolation, from points named by `seed`. `g`
+/// may refuse points.
+fn thiele(mut g: impl FnMut(u64) -> Option<u64>, p: u64, seed: u64) -> Option<(Dense, Dense)> {
+    let mut th = Thiele::default();
+    for i in 0..MAX_POINTS {
+        let t = point(&[seed, i], p);
+        let ft = Fp::new(t, p);
+        if th.contains(&ft) {
+            continue;
+        }
+        let Some(y) = g(t).map(|y| Fp::new(y, p)) else {
+            continue;
+        };
+        if th.eval(&ft) == Some(y) {
+            return Some(th.rational());
+        }
+        th.add(ft, y);
+    }
+    None
 }
 
 fn constant(n: usize, c: u64) -> ModPoly {

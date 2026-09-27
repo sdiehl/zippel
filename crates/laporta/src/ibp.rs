@@ -11,9 +11,9 @@ use std::fmt::Write;
 
 use num_rational::Rational64;
 use num_traits::{One, Zero};
+use polycore::modp::{add, mul, Primes};
+use polycore::sample::point;
 use polycore::{Order, Ring};
-use zippel_interp::modp::{add, mul, point};
-use zippel_interp::Primes;
 use zippel_lift::{lift, Fraction};
 
 use crate::{Plan, Row};

@@ -4,8 +4,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 mod common;
 
 use common::{random_poly, unlucky};
-use zippel_interp::modp::pow;
-use zippel_interp::{benor, interpolate, BlackBox, Primes, Rng};
+use polycore::modp::{pow, Primes};
+use polycore::sample::{BlackBox, Rng};
+use zippel_interp::{benor, interpolate};
 
 #[test]
 fn recovers_random_sparse_polynomials() {
@@ -50,7 +51,7 @@ fn tolerates_failing_evaluations() {
 #[test]
 fn rejects_non_polynomials() {
     let p = Primes::new().next().unwrap();
-    let bb = |x: &[u64], p| Some(zippel_interp::modp::inv(x[0], p));
+    let bb = |x: &[u64], p| Some(polycore::modp::inv(x[0], p));
     assert!(bb.eval(&[2], p).is_some());
     assert_eq!(interpolate(&bb, 1, p, 4), None);
 }

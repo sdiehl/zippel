@@ -12,10 +12,10 @@ description = "Black-box sparse polynomial and rational function interpolation o
 
 [features]
 default = ["parallel"]
-parallel = ["dep:rayon"]
+parallel = ["polycore/parallel"]
 
 [dependencies]
-rayon = { workspace = true, optional = true }
+polycore.workspace = true
 
 [lints]
 workspace = true

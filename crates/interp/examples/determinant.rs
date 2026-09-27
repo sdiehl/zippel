@@ -2,9 +2,9 @@
 //! reconstructing IBP reduction coefficients from numeric linear solves.
 #![allow(clippy::many_single_char_names)]
 
+use polycore::modp::{inv, mul, sub, Primes};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use zippel_interp::modp::{inv, mul, sub};
-use zippel_interp::{interpolate, Primes};
+use zippel_interp::interpolate;
 
 const NAMES: [&str; 4] = ["x", "y", "z", "w"];
 

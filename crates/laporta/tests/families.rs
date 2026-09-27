@@ -1,7 +1,8 @@
 #[path = "../examples/families/mod.rs"]
 mod families;
 
-use zippel_interp::{Primes, Rng};
+use polycore::modp::Primes;
+use polycore::sample::Rng;
 use zippel_laporta::{
     ibp::{Family, Index},
     Plan, Row,

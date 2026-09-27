@@ -9,15 +9,10 @@
 )]
 
 pub mod benor;
-pub mod modp;
 pub mod poly;
 pub mod rational;
-pub mod thiele;
-pub mod univariate;
-pub mod vandermonde;
 pub mod zippel;
 
-pub use modp::{Primes, Rng};
-pub use poly::{Exps, ModPoly};
+pub use poly::{dense, Dense, Exps, ModPoly};
 pub use rational::{reconstruct, RatFunc};
-pub use zippel::{interpolate, BlackBox};
+pub use zippel::interpolate;

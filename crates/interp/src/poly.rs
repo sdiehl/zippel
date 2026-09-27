@@ -1,9 +1,16 @@
 //! Sparse polynomials over GF(p) in lex order (variable 0 most significant), terms descending.
 
-use crate::modp::{add, inv, mul, pow};
-use crate::univariate::{self as uni, Dense};
+use polycore::modp::{add, inv, mul, pow};
+use polycore::{Fp, Modular, Uni};
 
 pub type Exps = Vec<u32>;
+
+/// A dense univariate polynomial over GF(p).
+pub type Dense = Uni<Fp>;
+
+pub fn dense(cs: impl IntoIterator<Item = u64>, p: u64) -> Dense {
+    Uni::new(cs.into_iter().map(|c| Fp::new(c, p)).collect())
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ModPoly {
@@ -33,8 +40,8 @@ impl ModPoly {
     }
 
     /// Coefficients in `x_k` of each monomial in `x_0..x_{k-1}`, assuming later variables are gone.
-    pub fn groups(&self, k: usize) -> Vec<(Exps, Dense)> {
-        let mut out: Vec<(Exps, Dense)> = Vec::new();
+    pub fn groups(&self, k: usize, p: u64) -> Vec<(Exps, Dense)> {
+        let mut out: Vec<(Exps, Vec<u64>)> = Vec::new();
         for (e, c) in &self.terms {
             let mut key = e.clone();
             key[k] = 0;
@@ -48,16 +55,19 @@ impl ModPoly {
             }
             d[i] = *c;
         }
-        out
+        out.into_iter().map(|(e, d)| (e, dense(d, p))).collect()
     }
 
-    pub fn from_groups(n: usize, k: usize, groups: Vec<(Exps, Dense)>) -> Self {
+    pub fn from_groups(n: usize, k: usize, groups: Vec<(Exps, Dense)>, p: u64) -> Self {
         let mut terms = Vec::new();
         for (key, d) in groups {
-            for (i, &c) in d.iter().enumerate().rev().filter(|t| *t.1 != 0) {
-                let mut e = key.clone();
-                e[k] = i as u32;
-                terms.push((e, c));
+            for (i, c) in d.0.iter().enumerate().rev() {
+                let c = c.residue_mod(p);
+                if c != 0 {
+                    let mut e = key.clone();
+                    e[k] = i as u32;
+                    terms.push((e, c));
+                }
             }
         }
         Self { n, terms }
@@ -65,26 +75,21 @@ impl ModPoly {
 
     /// Content in `GF(p)[x_k]` and the primitive part.
     pub fn primitive(&self, k: usize, p: u64) -> (Dense, Self) {
-        let groups = self.groups(k);
-        let c = groups
-            .iter()
-            .fold(Vec::new(), |acc, g| uni::gcd(&acc, &g.1, p));
-        if c.len() == 1 {
+        let groups = self.groups(k, p);
+        let c = groups.iter().fold(Uni::zero(), |acc, g| acc.gcd(&g.1));
+        if c.deg() == 0 {
             return (c, self.clone());
         }
-        let groups = groups
-            .into_iter()
-            .map(|(e, d)| (e, uni::div_rem(&d, &c, p).0))
-            .collect();
-        (c, Self::from_groups(self.n, k, groups))
+        let groups = groups.into_iter().map(|(e, d)| (e, &d / &c)).collect();
+        (c, Self::from_groups(self.n, k, groups, p))
     }
 
     #[must_use]
     pub fn eval_var(&self, k: usize, a: u64, p: u64) -> Self {
         let terms = self
-            .groups(k)
+            .groups(k, p)
             .into_iter()
-            .map(|(e, d)| (e, uni::eval(&d, a, p)))
+            .map(|(e, d)| (e, d.eval(&Fp::new(a, p)).residue_mod(p)))
             .filter(|t| t.1 != 0)
             .collect();
         Self { n: self.n, terms }
@@ -103,8 +108,7 @@ impl ModPoly {
                 });
             d[e[k] as usize] = add(d[e[k] as usize], v, p);
         }
-        uni::trim(&mut d);
-        d
+        dense(d, p)
     }
 
     pub fn eval(&self, x: &[u64], p: u64) -> u64 {

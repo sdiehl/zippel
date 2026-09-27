@@ -17,7 +17,7 @@ mod poly;
 use num_bigint::BigInt;
 use num_integer::Integer;
 use num_rational::BigRational;
-use num_traits::{One, Signed};
+use num_traits::One;
 use poly::IntPoly;
 use polycore::Monomial;
 
@@ -48,19 +48,7 @@ fn rational(h: &IntPoly, d: &BigInt, like: &Poly) -> Poly {
 
 /// Primitive over Z with a positive leading coefficient in `like`'s monomial order.
 fn normalized(h: &IntPoly, like: &Poly) -> Poly {
-    let r = rational(
-        &if h.is_zero() {
-            h.clone()
-        } else {
-            h.primitive()
-        },
-        &BigInt::one(),
-        like,
-    );
-    match r.lc() {
-        Some(c) if c.is_negative() => -&r,
-        _ => r,
-    }
+    rational(h, &BigInt::one(), like).primitive()
 }
 
 fn gcd_int(f: &Poly, g: &Poly) -> IntPoly {

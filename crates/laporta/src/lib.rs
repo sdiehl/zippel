@@ -18,8 +18,8 @@ pub mod ibp;
 #[doc = include_str!("../../../README.md")]
 struct ReadmeDoctests;
 
+use polycore::modp::{add, inv, mul, sub};
 use std::collections::{BTreeMap, BTreeSet, BinaryHeap};
-use zippel_interp::modp::{add, inv, mul, sub};
 
 /// A sparse equation `sum c_j * u_j = 0` as `(j, c_j)` pairs.
 pub type Row = Vec<(usize, u64)>;

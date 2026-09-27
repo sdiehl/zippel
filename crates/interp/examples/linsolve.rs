@@ -3,9 +3,9 @@
 //! kinematics recovered from numeric solves.
 #![allow(clippy::many_single_char_names)]
 
+use polycore::modp::{add, inv, mul, sub, Primes};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use zippel_interp::modp::{add, inv, mul, sub};
-use zippel_interp::{reconstruct, Primes};
+use zippel_interp::reconstruct;
 
 const NAMES: [&str; 3] = ["d", "s", "m"];
 

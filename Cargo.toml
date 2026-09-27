@@ -34,3 +34,6 @@ all = { level = "warn", priority = -1 }
 pedantic = { level = "warn", priority = -1 }
 nursery = { level = "warn", priority = -1 }
 cargo = { level = "warn", priority = -1 }
+
+[patch.crates-io]
+polycore = { git = "https://github.com/sdiehl/poly-core" }

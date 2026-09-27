@@ -1,6 +1,7 @@
 #![allow(clippy::cast_possible_truncation, dead_code, unreachable_pub)]
 
-use zippel_interp::{ModPoly, Rng};
+use polycore::sample::Rng;
+use zippel_interp::ModPoly;
 
 pub fn random_poly(rng: &mut Rng, n: usize, terms: usize, deg: u64, p: u64) -> ModPoly {
     let mut t: Vec<_> = (0..terms)

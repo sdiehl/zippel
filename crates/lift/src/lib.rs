@@ -14,8 +14,6 @@
     clippy::must_use_candidate
 )]
 
-mod crt;
-
 use std::collections::HashMap;
 use std::sync::Mutex;
 
@@ -23,11 +21,13 @@ use num_bigint::BigInt;
 use num_integer::Integer;
 use num_rational::BigRational;
 use num_traits::{One, Zero};
+use polycore::modp::{add, mul, pow, sub, Primes};
+use polycore::sample::point;
+use polycore::{crt, dense, Fp, Modular};
 use polycore::{Monomial, Order};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
-use zippel_interp::modp::{add, inv, mul, point, pow, sub};
-use zippel_interp::{reconstruct, Exps, Primes, RatFunc};
+use zippel_interp::{reconstruct, Exps, RatFunc};
 
 pub type Poly = polycore::Poly<BigRational>;
 
@@ -160,7 +160,17 @@ fn fit(
             })
             .collect::<Option<_>>()?;
         let check = rows.pop().filter(|_| rows.len() == unknowns)?;
-        let c = solve(rows, p)?;
+        let fp = |v: &u64| Fp::new(*v, p);
+        let a: Vec<Vec<Fp>> = rows
+            .iter()
+            .map(|r| r[..unknowns].iter().map(fp).collect())
+            .collect();
+        let b: Vec<Fp> = rows.iter().map(|r| fp(&r[unknowns])).collect();
+        let c: Vec<u64> = dense::solve(&a, &b)
+            .ok()?
+            .iter()
+            .map(|x| x.residue_mod(p))
+            .collect();
         let lhs = c
             .iter()
             .zip(&check)
@@ -173,27 +183,6 @@ fn fit(
         values.extend(&c[num.len()..]);
     }
     Some(values)
-}
-
-/// Gauss-Jordan on the augmented square system `a`, or `None` if it is singular.
-fn solve(mut a: Vec<Vec<u64>>, p: u64) -> Option<Vec<u64>> {
-    let m = a.len();
-    for c in 0..m {
-        let r = (c..m).find(|&r| a[r][c] != 0)?;
-        a.swap(c, r);
-        let l = inv(a[c][c], p);
-        a[c].iter_mut().for_each(|x| *x = mul(*x, l, p));
-        let pivot = a[c].clone();
-        for row in a.iter_mut().enumerate().filter(|t| t.0 != c).map(|t| t.1) {
-            let k = row[c];
-            if k != 0 {
-                row.iter_mut()
-                    .zip(&pivot)
-                    .for_each(|(x, &y)| *x = sub(*x, mul(k, y, p), p));
-            }
-        }
-    }
-    Some(a.into_iter().map(|r| r[m]).collect())
 }
 
 fn terms(shape: &Shape) -> usize {

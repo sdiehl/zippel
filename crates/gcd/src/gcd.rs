@@ -6,9 +6,9 @@ use crate::poly::{add_exps, one, Exps, IntPoly, ModPoly};
 use num_bigint::BigInt;
 use num_integer::Integer;
 use num_traits::{One, Zero};
+use polycore::modp::{inv, mul, sub, Primes};
+use polycore::sample::Rng;
 use std::iter::once;
-use zippel_interp::modp::{inv, mul, sub, Primes, Rng};
-use zippel_interp::univariate as uni;
 
 /// `gcd(f, g)` up to sign.
 pub(crate) fn gcd_z(f: &IntPoly, g: &IntPoly) -> IntPoly {
@@ -142,5 +142,5 @@ fn modular(f: &IntPoly, g: &IntPoly) -> IntPoly {
 fn coprime(f: &ModPoly, g: &ModPoly, p: u64, rng: &mut Rng) -> bool {
     let point: Vec<u64> = (0..f.n).map(|_| rng.nonzero(p)).collect();
     let (uf, ug) = (f.eval_except(0, &point, p), g.eval_except(0, &point, p));
-    uni::deg(&uf) == f.degree(0) && uni::deg(&ug) == g.degree(0) && uni::gcd(&uf, &ug, p).len() == 1
+    uf.deg() == f.degree(0) && ug.deg() == g.degree(0) && uf.gcd(&ug).0.len() == 1
 }

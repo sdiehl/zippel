@@ -1,8 +1,8 @@
 #![allow(clippy::many_single_char_names)]
 
 use num_integer::Integer;
+use polycore::modp::{add, inv, mul, pow};
 use polycore::{Order, Ring};
-use zippel_interp::modp::{add, inv, mul, pow};
 use zippel_lift::{lift, Poly};
 
 fn eval_mod(f: &Poly, x: &[u64], p: u64) -> Option<u64> {
