@@ -1,20 +1,18 @@
 # Changelog
 
-## 0.2.0
+## 0.2.0 (2026-09-27)
 
-Refactor onto `polycore` for shared polynomial and modular arithmetic.
-
-- Polynomials are now `polycore::Poly` in place of `groebner::Polynomial`.
-- `BlackBox`, `Primes` and `Rng` move to `polycore`.
+- Move polynomials onto `polycore::Poly`.
+- Move `BlackBox`, `Primes` and `Rng` to `polycore`.
+- Take Berlekamp-Massey, roots, Vandermonde and CRT from `polycore`.
 - Drop the `modp`, `thiele`, `univariate` and `vandermonde` modules.
 - Export `Dense` and `dense` from `zippel-interp`.
-- Berlekamp-Massey, root finding, Vandermonde solves and CRT come from `polycore`.
+- Add `Frac`, rational functions in lowest terms.
+- Add an optional `parallel` feature gating rayon.
 - Bump `groebner` to 0.4.
-- MSRV is now Rust 1.98, required by `polycore`.
-- Optional `parallel` feature, on by default, gates rayon.
-- Add `Frac`, rational functions in several variables in lowest terms.
+- Set MSRV to Rust 1.88.
 
-## 0.1.0
+## 0.1.0 (2026-09-25)
 
 Initial release.
 
