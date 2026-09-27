@@ -1,10 +1,11 @@
 #![allow(clippy::many_single_char_names, clippy::cast_possible_truncation)]
 
-use groebner::{Ideal, Monomial, MonomialOrder, Polynomial, Term};
+use groebner::Ideal;
 use num_bigint::BigInt;
 use num_rational::BigRational;
+use polycore::{Monomial, Order};
 
-type Poly = Polynomial<BigRational>;
+type Poly = polycore::Poly<BigRational>;
 
 struct Lcg(u64);
 
@@ -21,18 +22,16 @@ impl Lcg {
         let terms = (0..=self.below(max_terms))
             .map(|_| {
                 let c = BigRational::from(BigInt::from(self.below(19).cast_signed() - 9));
-                Term::new(
-                    c,
-                    Monomial::new((0..n).map(|_| self.below(deg + 1) as u32).collect()),
-                )
+                let m: Vec<u32> = (0..n).map(|_| self.below(deg + 1) as u32).collect();
+                (Monomial::new(m), c)
             })
             .collect();
-        Polynomial::new(terms, n, MonomialOrder::GRevLex)
+        Poly::new(terms, n, Order::GRevLex)
     }
 }
 
 fn monic(p: &Poly) -> Poly {
-    p.reorder(MonomialOrder::Lex).make_monic()
+    p.reorder(Order::Lex).monic()
 }
 
 #[test]
@@ -43,10 +42,10 @@ fn common_factor_is_found() {
         let c = rng.poly(n, 8, 3);
         let a = rng.poly(n, 6, 3);
         let b = rng.poly(n, 6, 3);
-        let (f, g) = (a.multiply(&c), b.multiply(&c));
+        let (f, g) = (&a * &c, &b * &c);
         let (h, cf, cg) = zippel_gcd::cofactors(&f, &g);
-        assert_eq!(h.multiply(&cf), f);
-        assert_eq!(h.multiply(&cg), g);
+        assert_eq!(&h * &cf, f);
+        assert_eq!(&h * &cg, g);
         assert_eq!(monic(&zippel_gcd::gcd(&h, &c)), monic(&c));
         if !f.is_zero() && !g.is_zero() {
             assert!(zippel_gcd::gcd(&cf, &cg).is_constant());
@@ -57,33 +56,26 @@ fn common_factor_is_found() {
 /// `<t f, (1 - t) g>` meets `Q[x]` in `<lcm(f, g)>`.
 fn lcm_by_elimination(f: &Poly, g: &Poly) -> Poly {
     let n = f.nvars;
-    let order = MonomialOrder::elimination(1, n);
+    let order = Order::elimination(1, n);
     let lift = |p: &Poly, t: u32, c: i64| {
-        let terms = p.terms.iter().map(|term| {
-            let e = std::iter::once(t)
-                .chain(term.monomial.exponents().iter().copied())
-                .collect();
-            Term::new(
-                &term.coefficient * BigRational::from(BigInt::from(c)),
-                Monomial::new(e),
-            )
+        let terms = p.terms.iter().map(|(m, k)| {
+            let e: Vec<u32> = std::iter::once(t).chain(m.exps().iter().copied()).collect();
+            (Monomial::new(e), k * BigRational::from(BigInt::from(c)))
         });
-        Polynomial::new(terms.collect(), n + 1, order.clone())
+        Poly::new(terms.collect(), n + 1, order.clone())
     };
     let tf = lift(f, 1, 1);
-    let one_minus_t_g = lift(g, 0, 1).add(&lift(g, 1, -1));
+    let one_minus_t_g = &lift(g, 0, 1) + &lift(g, 1, -1);
     let ideal = Ideal::new(vec![tf, one_minus_t_g])
         .unwrap()
         .eliminate(1)
         .unwrap();
     let l = &ideal.basis()[0];
-    let terms = l.terms.iter().map(|t| {
-        Term::new(
-            t.coefficient.clone(),
-            Monomial::new(t.monomial.exponents()[1..].to_vec()),
-        )
-    });
-    Polynomial::new(terms.collect(), n, MonomialOrder::Lex)
+    let terms = l
+        .terms
+        .iter()
+        .map(|(m, c)| (Monomial::new(&m.exps()[1..]), c.clone()));
+    Poly::new(terms.collect(), n, Order::Lex)
 }
 
 #[test]
@@ -92,10 +84,7 @@ fn lcm_matches_ideal_intersection() {
     for _ in 0..30 {
         let n = 2 + rng.below(2) as usize;
         let c = rng.poly(n, 3, 2);
-        let (f, g) = (
-            rng.poly(n, 3, 2).multiply(&c),
-            rng.poly(n, 3, 2).multiply(&c),
-        );
+        let (f, g) = (&rng.poly(n, 3, 2) * &c, &rng.poly(n, 3, 2) * &c);
         if f.is_zero() || g.is_zero() {
             continue;
         }

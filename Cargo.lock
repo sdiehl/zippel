@@ -129,13 +129,14 @@ dependencies = [
 
 [[package]]
 name = "groebner"
-version = "0.3.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "66bcd4c0e21f9165241b1bbb86c854db63d734bd060d885e6fdac5c6e0758bbe"
+checksum = "6fa974eb55e465e28412441d066e6b5ee100b7ef2dc84fa09b4bf8777ee0a17f"
 dependencies = [
- "num-bigint 0.5.1",
+ "num-bigint",
  "num-rational",
  "num-traits",
+ "polycore",
 ]
 
 [[package]]
@@ -171,6 +172,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
 
 [[package]]
+name = "machine-prime"
+version = "1.5.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7d03ca6613866664911074d8ced95b89d6cb09fef62256d06d120f063adf80df"
+
+[[package]]
 name = "memchr"
 version = "2.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -181,16 +188,6 @@ name = "num-bigint"
 version = "0.4.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c89e69e7e0f03bea5ef08013795c25018e101932225a656383bd384495ecc367"
-dependencies = [
- "num-integer",
- "num-traits",
-]
-
-[[package]]
-name = "num-bigint"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "93e7820bc0a80a0238e650327316f929ba18d5be054b647490a3a6a339f3e7c0"
 dependencies = [
  "num-integer",
  "num-traits",
@@ -211,7 +208,7 @@ version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f83d14da390562dca69fc84082e73e548e1ad308d24accdedd2720017cb37824"
 dependencies = [
- "num-bigint 0.4.8",
+ "num-bigint",
  "num-integer",
  "num-traits",
 ]
@@ -230,6 +227,20 @@ name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
+
+[[package]]
+name = "polycore"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1138accefa3754a153ccae3e4cd9ecfb7d1ea210ec37977eb767f75ef6dc4df3"
+dependencies = [
+ "machine-prime",
+ "num-bigint",
+ "num-integer",
+ "num-rational",
+ "num-traits",
+ "rand_xoshiro",
+]
 
 [[package]]
 name = "proc-macro2"
@@ -254,6 +265,21 @@ name = "r-efi"
 version = "6.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
+
+[[package]]
+name = "rand_core"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "63b8176103e19a2643978565ca18b50549f6101881c443590420e4dc998a3c69"
+
+[[package]]
+name = "rand_xoshiro"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "662effc7698e08ea324d3acccf8d9d7f7bf79b9785e270a174ea36e56900c91d"
+dependencies = [
+ "rand_core",
+]
 
 [[package]]
 name = "rayon"
@@ -410,10 +436,11 @@ version = "0.1.0"
 dependencies = [
  "groebner",
  "insta",
- "num-bigint 0.4.8",
+ "num-bigint",
  "num-integer",
  "num-rational",
  "num-traits",
+ "polycore",
  "zippel-interp",
 ]
 
@@ -428,11 +455,11 @@ dependencies = [
 name = "zippel-laporta"
 version = "0.1.0"
 dependencies = [
- "groebner",
  "insta",
  "num-integer",
  "num-rational",
  "num-traits",
+ "polycore",
  "zippel-interp",
  "zippel-lift",
 ]
@@ -441,12 +468,12 @@ dependencies = [
 name = "zippel-lift"
 version = "0.1.0"
 dependencies = [
- "groebner",
  "insta",
- "num-bigint 0.4.8",
+ "num-bigint",
  "num-integer",
  "num-rational",
  "num-traits",
+ "polycore",
  "rayon",
  "zippel-interp",
 ]

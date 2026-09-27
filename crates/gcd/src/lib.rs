@@ -14,39 +14,36 @@ mod linzip;
 mod pgcd;
 mod poly;
 
-use groebner::{Monomial, Polynomial, Term};
 use num_bigint::BigInt;
 use num_integer::Integer;
 use num_rational::BigRational;
 use num_traits::{One, Signed};
 use poly::IntPoly;
+use polycore::Monomial;
 
-type Poly = Polynomial<BigRational>;
+type Poly = polycore::Poly<BigRational>;
 
 /// `f = F / d` with `F` integral.
 fn integral(f: &Poly) -> (IntPoly, BigInt) {
     let d = f
         .terms
         .iter()
-        .fold(BigInt::one(), |d, t| d.lcm(t.coefficient.denom()));
-    let terms = f.terms.iter().map(|t| {
-        let c = &t.coefficient;
-        (
-            t.monomial.exponents().to_vec(),
-            c.numer() * (&d / c.denom()),
-        )
-    });
+        .fold(BigInt::one(), |d, (_, c)| d.lcm(c.denom()));
+    let terms = f
+        .terms
+        .iter()
+        .map(|(m, c)| (m.exps().to_vec(), c.numer() * (&d / c.denom())));
     (IntPoly::new(f.nvars, terms), d)
 }
 
 fn rational(h: &IntPoly, d: &BigInt, like: &Poly) -> Poly {
     let terms = h.terms.iter().map(|(e, c)| {
-        Term::new(
-            BigRational::new(c.clone(), d.clone()),
+        (
             Monomial::new(e.clone()),
+            BigRational::new(c.clone(), d.clone()),
         )
     });
-    Polynomial::new(terms.collect(), like.nvars, like.order.clone())
+    Poly::new(terms.collect(), like.nvars, like.order.clone())
 }
 
 /// Primitive over Z with a positive leading coefficient in `like`'s monomial order.
@@ -60,8 +57,8 @@ fn normalized(h: &IntPoly, like: &Poly) -> Poly {
         &BigInt::one(),
         like,
     );
-    match r.leading_coefficient() {
-        Some(c) if c.is_negative() => r.multiply_scalar(&-BigRational::one()),
+    match r.lc() {
+        Some(c) if c.is_negative() => -&r,
         _ => r,
     }
 }
@@ -82,7 +79,7 @@ pub fn gcd(f: &Poly, g: &Poly) -> Poly {
 #[must_use]
 pub fn cofactors(f: &Poly, g: &Poly) -> (Poly, Poly, Poly) {
     let h = gcd_int(f, g);
-    let zero = Polynomial::zero(f.nvars, f.order.clone());
+    let zero = Poly::zero(f.nvars, f.order.clone());
     if h.is_zero() {
         return (zero.clone(), zero.clone(), zero);
     }
@@ -100,7 +97,7 @@ pub fn cofactors(f: &Poly, g: &Poly) -> (Poly, Poly, Poly) {
 pub fn lcm(f: &Poly, g: &Poly) -> Poly {
     let h = gcd_int(f, g);
     if f.is_zero() || g.is_zero() {
-        return Polynomial::zero(f.nvars, f.order.clone());
+        return Poly::zero(f.nvars, f.order.clone());
     }
     let (hg, _) = integral(g);
     normalized(

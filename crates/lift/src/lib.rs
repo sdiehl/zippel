@@ -19,20 +19,20 @@ mod crt;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use groebner::{Monomial, MonomialOrder, Polynomial, Term};
 use num_bigint::BigInt;
 use num_integer::Integer;
 use num_rational::BigRational;
 use num_traits::{One, Zero};
+use polycore::{Monomial, Order};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 use zippel_interp::modp::{add, inv, mul, point, pow, sub};
 use zippel_interp::{reconstruct, Exps, Primes, RatFunc};
 
-pub type Poly = Polynomial<BigRational>;
+pub type Poly = polycore::Poly<BigRational>;
 
 /// `num / den` in lowest terms over Z: coprime integer coefficients, `den` leading positive in lex.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Fraction {
     pub num: Poly,
     pub den: Poly,
@@ -227,9 +227,9 @@ fn fractions(n: usize, shape: &Shape, q: &[BigRational]) -> Vec<Fraction> {
         let terms = es
             .iter()
             .zip(q.by_ref())
-            .map(|(e, c)| Term::new(c.clone(), Monomial::new(e.clone())))
+            .map(|(e, c)| (Monomial::new(e.clone()), c.clone()))
             .collect();
-        Polynomial::new(terms, n, MonomialOrder::Lex)
+        Poly::new(terms, n, Order::Lex)
     };
     shape
         .iter()
@@ -239,19 +239,14 @@ fn fractions(n: usize, shape: &Shape, q: &[BigRational]) -> Vec<Fraction> {
 
 /// Scales `num / den` to coprime integer coefficients.
 fn integral(num: &Poly, den: &Poly) -> Fraction {
-    let cs: Vec<&BigRational> = num
-        .terms
-        .iter()
-        .chain(&den.terms)
-        .map(|t| &t.coefficient)
-        .collect();
+    let cs: Vec<&BigRational> = num.terms.iter().chain(&den.terms).map(|t| &t.1).collect();
     let l = cs.iter().fold(BigInt::one(), |l, c| l.lcm(c.denom()));
     let g = cs.iter().fold(BigInt::zero(), |g, c| {
         g.gcd(&(c.numer() * (&l / c.denom())))
     });
     let k = BigRational::new(l, g);
     Fraction {
-        num: num.multiply_scalar(&k),
-        den: den.multiply_scalar(&k),
+        num: num.scale(&k),
+        den: den.scale(&k),
     }
 }

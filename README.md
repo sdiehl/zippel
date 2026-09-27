@@ -9,7 +9,7 @@ IBP systems are eliminated numerically modulo word-sized primes, and the exact r
 - [`zippel-interp::benor`](crates/interp/src/benor.rs): Ben-Or/Tiwari interpolation from about two evaluations per term
 - [`zippel-lift`](crates/lift): Lifts to Q by CRT and rational number reconstruction
 - [`zippel-laporta`](crates/laporta): IBP generation and Laporta elimination over GF(p)
-- [`zippel-gcd`](crates/gcd): Multivariate GCD, cofactors and LCM of [groebner](https://crates.io/crates/groebner) polynomials via LINZIP
+- [`zippel-gcd`](crates/gcd): Multivariate GCD, cofactors and LCM of [polycore](https://crates.io/crates/polycore) polynomials via LINZIP
 
 ```bash
 cargo build

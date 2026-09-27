@@ -1,21 +1,16 @@
 #![allow(clippy::many_single_char_names)]
 
-use groebner::{MonomialOrder, PolynomialRing};
 use num_integer::Integer;
-use num_rational::BigRational;
+use polycore::{Order, Ring};
 use zippel_interp::modp::{add, inv, mul, pow};
 use zippel_lift::{lift, Poly};
 
-type Ring = PolynomialRing<BigRational>;
-
 fn eval_mod(f: &Poly, x: &[u64], p: u64) -> Option<u64> {
-    f.terms.iter().try_fold(0, |acc, t| {
-        let c = &t.coefficient;
+    f.terms.iter().try_fold(0, |acc, (m, c)| {
         let den = (c.denom() % p).try_into().ok().filter(|&d: &u64| d != 0)?;
         let num: u64 = (c.numer().mod_floor(&p.into())).try_into().ok()?;
-        let v = t
-            .monomial
-            .exponents()
+        let v = m
+            .exps()
             .iter()
             .zip(x)
             .fold(mul(num, inv(den, p), p), |v, (&e, &xi)| {
@@ -27,7 +22,7 @@ fn eval_mod(f: &Poly, x: &[u64], p: u64) -> Option<u64> {
 
 #[test]
 fn lifts_to_rationals() {
-    let ring = Ring::new(["x", "y", "z"], MonomialOrder::Lex).unwrap();
+    let ring = Ring::new(["x", "y", "z"], Order::Lex);
     let cases = [
         ("x^2 - 3*y*z + 12345678901234567890123456789", "2*x*y - 5"),
         ("7/3*y - 1/2", "x + z^3"),
@@ -49,13 +44,7 @@ fn lifts_to_rationals() {
     let out: Vec<String> = lift(bb, 3, 1)
         .unwrap()
         .iter()
-        .map(|f| {
-            format!(
-                "({}) / ({})",
-                ring.format(&f.num).unwrap(),
-                ring.format(&f.den).unwrap()
-            )
-        })
+        .map(|f| format!("({}) / ({})", ring.show(&f.num), ring.show(&f.den)))
         .collect();
     insta::assert_snapshot!(out.join("\n"));
 }

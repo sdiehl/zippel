@@ -9,9 +9,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write;
 
-use groebner::{MonomialOrder, PolynomialRing};
-use num_rational::{BigRational, Rational64};
+use num_rational::Rational64;
 use num_traits::{One, Zero};
+use polycore::{Order, Ring};
 use zippel_interp::modp::{add, mul, point};
 use zippel_interp::Primes;
 use zippel_lift::{lift, Fraction};
@@ -449,11 +449,10 @@ impl System {
 
     /// `I(a) = c * I(..) + ...` per target.
     pub fn render(&self, plan: &Plan, coefficients: &[Fraction]) -> String {
-        let ring = PolynomialRing::<BigRational>::new(self.vars.clone(), MonomialOrder::Lex)
-            .expect("valid variable names");
+        let ring = Ring::new(self.vars.clone(), Order::Lex);
         let show = |f: &Fraction| {
-            let num = ring.format(&f.num).unwrap();
-            match ring.format(&f.den).unwrap().as_str() {
+            let num = ring.show(&f.num);
+            match ring.show(&f.den).as_str() {
                 "1" => format!("({num})"),
                 den => format!("({num}) / ({den})"),
             }

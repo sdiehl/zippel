@@ -1,11 +1,9 @@
-use groebner::{MonomialOrder, Polynomial, PolynomialRing};
 use num_rational::BigRational;
+use polycore::{Order, Poly, Ring};
 use std::fmt::Write;
 
-type Ring = PolynomialRing<BigRational>;
-
 /// A product of `(p)`, `(p)^k` or bare factors joined by ` * ` at parenthesis depth zero.
-fn product(ring: &Ring, src: &str) -> Polynomial<BigRational> {
+fn product(ring: &Ring, src: &str) -> Poly<BigRational> {
     let (mut depth, mut start, mut factors) = (0, 0, Vec::new());
     for (i, ch) in src.char_indices() {
         match ch {
@@ -25,7 +23,7 @@ fn product(ring: &Ring, src: &str) -> Polynomial<BigRational> {
             None => (f.trim_start_matches('(').trim_end_matches(')'), 1),
         };
         let p = ring.parse(body).unwrap();
-        (0..k).fold(acc, |acc, _| acc.multiply(&p))
+        &acc * &p.pow(k)
     })
 }
 
@@ -34,12 +32,12 @@ fn cases() {
     insta::glob!("cases/*.txt", |path| {
         let src = std::fs::read_to_string(path).unwrap();
         let lines: Vec<&str> = src.lines().collect();
-        let ring = Ring::new(lines[0].split(", "), MonomialOrder::GRevLex).unwrap();
+        let ring = Ring::new(lines[0].split(", "), Order::GRevLex);
         let (f, g) = (product(&ring, lines[1]), product(&ring, lines[2]));
         let (h, cf, cg) = zippel_gcd::cofactors(&f, &g);
-        assert_eq!(h.multiply(&cf), f);
-        assert_eq!(h.multiply(&cg), g);
-        let show = |p| ring.format(p).unwrap();
+        assert_eq!(&h * &cf, f);
+        assert_eq!(&h * &cg, g);
+        let show = |p| ring.show(p);
         let mut out = String::new();
         writeln!(out, "gcd = {}", show(&h)).unwrap();
         writeln!(out, "f/gcd = {}", show(&cf)).unwrap();
