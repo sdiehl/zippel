@@ -12,6 +12,7 @@ Refactor onto `polycore` for shared polynomial and modular arithmetic.
 - Bump `groebner` to 0.4.
 - MSRV is now Rust 1.98, required by `polycore`.
 - Optional `parallel` feature, on by default, gates rayon.
+- Add `Frac`, rational functions in several variables in lowest terms.
 
 ## 0.1.0
 

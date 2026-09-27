@@ -4,11 +4,11 @@ version.workspace = true
 authors.workspace = true
 categories.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 keywords = ["polynomial", "interpolation", "zippel", "finite-field"]
 license.workspace = true
 readme.workspace = true
 repository.workspace = true
+rust-version.workspace = true
 description = "Black-box sparse polynomial and rational function interpolation over word-sized prime fields."
 
 [features]

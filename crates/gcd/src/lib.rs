@@ -9,6 +9,7 @@
     clippy::module_name_repetitions
 )]
 
+mod frac;
 mod gcd;
 mod linzip;
 mod pgcd;
@@ -20,6 +21,8 @@ use num_rational::BigRational;
 use num_traits::One;
 use poly::IntPoly;
 use polycore::Monomial;
+
+pub use frac::Frac;
 
 type Poly = polycore::Poly<BigRational>;
 

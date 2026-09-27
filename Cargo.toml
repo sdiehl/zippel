@@ -7,10 +7,10 @@ version = "0.2.0"
 authors = ["Stephen Diehl <stephen.m.diehl@gmail.com>"]
 categories = ["algorithms", "mathematics"]
 edition = "2021"
-rust-version = "1.98"
 license = "MIT"
 readme = "README.md"
 repository = "https://github.com/sdiehl/zippel"
+rust-version = "1.98"
 
 [workspace.dependencies]
 groebner = { version = "0.4", default-features = false }
