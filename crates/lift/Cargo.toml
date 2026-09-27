@@ -4,6 +4,7 @@ version.workspace = true
 authors.workspace = true
 categories.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 keywords = ["rational-reconstruction", "crt", "interpolation", "algebra"]
 license.workspace = true
 publish = false
