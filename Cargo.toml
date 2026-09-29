@@ -13,7 +13,7 @@ repository = "https://github.com/sdiehl/zippel"
 rust-version = "1.88"
 
 [workspace.dependencies]
-groebner = { version = "0.4.1", default-features = false }
+groebner = { version = "0.5.0", default-features = false }
 insta = { version = "1.41", features = ["glob"] }
 num-bigint = "0.4"
 num-integer = "0.1"
