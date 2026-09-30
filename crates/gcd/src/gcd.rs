@@ -6,6 +6,7 @@ use crate::poly::{add_exps, gcd, one, Exps, IntPoly, ModPoly};
 use num_bigint::BigInt;
 use num_integer::Integer;
 use num_traits::{One, Zero};
+use polycore::crt::WangContext;
 use polycore::modp::{inv, mul, sub, Primes};
 use polycore::sample::Rng;
 use std::iter::once;
@@ -79,7 +80,8 @@ fn modular(f: &IntPoly, g: &IntPoly) -> IntPoly {
     let mut skeleton: Option<Vec<Exps>> = None;
     let mut acc: Vec<BigInt> = Vec::new();
     let mut modulus = BigInt::one();
-    let mut last: Option<IntPoly> = None;
+    let mut images = 0usize;
+    let mut tried: Option<IntPoly> = None;
     for p in Primes::new() {
         let gp_ = residue(&gamma, p);
         let (fp, gp) = (f.reduce(p), g.reduce(p));
@@ -104,7 +106,7 @@ fn modular(f: &IntPoly, g: &IntPoly) -> IntPoly {
                 skeleton = Some(h.support());
                 acc = vec![BigInt::zero(); h.terms.len()];
                 modulus = BigInt::one();
-                last = None;
+                images = 0;
             }
             Some(false) => {}
         }
@@ -119,22 +121,50 @@ fn modular(f: &IntPoly, g: &IntPoly) -> IntPoly {
             *a += &modulus * t;
         }
         modulus *= p;
-        let half = &modulus >> 1;
-        let candidate = IntPoly::new(
-            n,
-            s.iter()
-                .zip(&acc)
-                .map(|(e, a)| (e.clone(), if *a > half { a - &modulus } else { a.clone() })),
-        );
-        if last.as_ref() == Some(&candidate) {
-            let h = candidate.primitive();
-            if f.div_exact(&h).is_some() && g.div_exact(&h).is_some() {
-                return h;
-            }
+        images += 1;
+        let Some(h) = candidate(n, s, &acc, &modulus, images.is_power_of_two())
+            .filter(|h| tried.as_ref() != Some(h))
+        else {
+            continue;
+        };
+        if f.div_exact(&h).is_some() && g.div_exact(&h).is_some() {
+            return h;
         }
-        last = Some(candidate);
+        tried = Some(h);
     }
     unreachable!("ran out of primes")
+}
+
+/// Bits of headroom below the modulus that make a reconstruction worth a trial division.
+const SLACK: u64 = 16;
+
+/// A candidate once the residues settle well inside the modulus: as integers, or else as the
+/// fractions `h / lc(h)` of the images divided by `gamma`, which settle first when `gamma` is
+/// much larger than `lc(h)`. Fractions cost a reconstruction, so only some rounds try them.
+fn candidate(n: usize, s: &[Exps], acc: &[BigInt], m: &BigInt, fractions: bool) -> Option<IntPoly> {
+    let room = m.bits().saturating_sub(SLACK);
+    let half = m >> 1;
+    let lift: Vec<BigInt> = acc
+        .iter()
+        .map(|a| if *a > half { a - m } else { a.clone() })
+        .collect();
+    let poly = |cs: Vec<BigInt>| Some(IntPoly::new(n, s.iter().cloned().zip(cs)).primitive());
+    if lift.iter().all(|a| a.bits() <= room) {
+        return poly(lift);
+    }
+    if !fractions {
+        return None;
+    }
+    let w = WangContext::new(m)?;
+    let gi = acc[0].modinv(m)?;
+    let fraction = |a: &BigInt| {
+        w.reconstruct(&(a * &gi).mod_floor(m))
+            .filter(|q| q.numer().bits() + q.denom().bits() <= room)
+    };
+    fraction(acc.last()?)?;
+    let qs = acc.iter().map(fraction).collect::<Option<Vec<_>>>()?;
+    let l = qs.iter().fold(BigInt::one(), |l, q| l.lcm(q.denom()));
+    poly(qs.iter().map(|q| q.numer() * (&l / q.denom())).collect())
 }
 
 /// With `x_0`-degrees preserved, a constant univariate image proves `gcd = 1`, because the gcd

@@ -19,8 +19,7 @@ pub(crate) fn pgcd(f: &ModPoly, g: &ModPoly, k: usize, p: u64, rng: &mut Rng) ->
     let (cf, f) = f.primitive(k, p);
     let (cg, g) = g.primitive(k, p);
     let content = cf.gcd(&cg);
-    let lf = f.groups(k, p).swap_remove(0).1;
-    let lg = g.groups(k, p).swap_remove(0).1;
+    let (lf, lg) = (f.lead(k, p), g.lead(k, p));
     let gamma = lf.gcd(&lg);
     let need = degree_bound(&f, &g, k, p, rng)? + gamma.deg() + 1;
 

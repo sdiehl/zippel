@@ -1,7 +1,8 @@
 //! Sparse polynomials over GF(p) in lex order (variable 0 most significant), terms descending.
 
-use polycore::modp::{add, inv, mul, pow};
+use polycore::modp::{add, inv, mul};
 use polycore::{Fp, Modular, Uni};
+use std::iter::successors;
 
 pub type Exps = Vec<u32>;
 
@@ -10,6 +11,18 @@ pub type Dense = Uni<Fp>;
 
 pub fn dense(cs: impl IntoIterator<Item = u64>, p: u64) -> Dense {
     Uni::new(cs.into_iter().map(|c| Fp::new(c, p)).collect())
+}
+
+/// `x[i]^j` for `j <= d[i]`, so evaluating a monomial takes one multiply per variable.
+pub fn power_table(x: &[u64], d: &[usize], p: u64) -> Vec<Vec<u64>> {
+    x.iter()
+        .zip(d)
+        .map(|(&xi, &di)| {
+            successors(Some(1 % p), |&v| Some(mul(v, xi, p)))
+                .take(di + 1)
+                .collect()
+        })
+        .collect()
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -37,6 +50,17 @@ impl ModPoly {
             .map(|t| t.0[k] as usize)
             .max()
             .unwrap_or(0)
+    }
+
+    /// The degree in every variable.
+    pub fn degrees(&self) -> Vec<usize> {
+        let mut d = vec![0; self.n];
+        for (e, _) in &self.terms {
+            d.iter_mut()
+                .zip(e)
+                .for_each(|(d, &x)| *d = (*d).max(x as usize));
+        }
+        d
     }
 
     /// Coefficients in `x_k` of each monomial in `x_0..x_{k-1}`, assuming later variables are gone.
@@ -76,7 +100,17 @@ impl ModPoly {
     /// Content in `GF(p)[x_k]` and the primitive part.
     pub fn primitive(&self, k: usize, p: u64) -> (Dense, Self) {
         let groups = self.groups(k, p);
-        let c = groups.iter().fold(Uni::zero(), |acc, g| acc.gcd(&g.1));
+        let c = groups
+            .iter()
+            .try_fold(Uni::zero(), |acc, g| {
+                let c = acc.gcd(&g.1);
+                if c.deg() == 0 {
+                    Err(c)
+                } else {
+                    Ok(c)
+                }
+            })
+            .unwrap_or_else(|c| c);
         if c.deg() == 0 {
             return (c, self.clone());
         }
@@ -86,37 +120,57 @@ impl ModPoly {
 
     #[must_use]
     pub fn eval_var(&self, k: usize, a: u64, p: u64) -> Self {
-        let terms = self
-            .groups(k, p)
-            .into_iter()
-            .map(|(e, d)| (e, d.eval(&Fp::new(a, p)).residue_mod(p)))
-            .filter(|t| t.1 != 0)
-            .collect();
+        let pw = &power_table(&[a], &[self.degree(k)], p)[0];
+        let mut terms: Vec<(Exps, u64)> = Vec::new();
+        for (e, c) in &self.terms {
+            let v = mul(*c, pw[e[k] as usize], p);
+            match terms.last_mut() {
+                Some((l, s)) if l[..k] == e[..k] => *s = add(*s, v, p),
+                _ => {
+                    let mut l = e.clone();
+                    l[k] = 0;
+                    terms.push((l, v));
+                }
+            }
+        }
+        terms.retain(|t| t.1 != 0);
         Self { n: self.n, terms }
+    }
+
+    /// The leading coefficient in `GF(p)[x_k]`, assuming later variables are gone.
+    pub fn lead(&self, k: usize, p: u64) -> Dense {
+        let key = &self.terms[0].0[..k];
+        let mut d = vec![0; self.terms[0].0[k] as usize + 1];
+        for (e, c) in self.terms.iter().take_while(|t| &t.0[..k] == key) {
+            d[e[k] as usize] = *c;
+        }
+        dense(d, p)
     }
 
     /// Substitute `point[i]` for every `x_i` with `i != k`, leaving a dense polynomial in `x_k`.
     pub fn eval_except(&self, k: usize, point: &[u64], p: u64) -> Dense {
-        let mut d = vec![0; self.degree(k) + 1];
+        let mut degs = self.degrees();
+        let mut d = vec![0; degs[k] + 1];
+        degs[k] = 0;
+        let pw = power_table(point, &degs, p);
         for (e, c) in &self.terms {
             let v = e
                 .iter()
                 .enumerate()
                 .filter(|&(i, &x)| i != k && x != 0)
-                .fold(*c, |acc, (i, &x)| {
-                    mul(acc, pow(point[i], u64::from(x), p), p)
-                });
+                .fold(*c, |acc, (i, &x)| mul(acc, pw[i][x as usize], p));
             d[e[k] as usize] = add(d[e[k] as usize], v, p);
         }
         dense(d, p)
     }
 
     pub fn eval(&self, x: &[u64], p: u64) -> u64 {
+        let pw = power_table(x, &self.degrees(), p);
         self.terms.iter().fold(0, |acc, (e, c)| {
             let v = e
                 .iter()
-                .zip(x)
-                .fold(*c, |v, (&d, &xi)| mul(v, pow(xi, u64::from(d), p), p));
+                .zip(&pw)
+                .fold(*c, |v, (&d, xi)| mul(v, xi[d as usize], p));
             add(acc, v, p)
         })
     }

@@ -7,9 +7,10 @@
 
 use crate::poly::{Exps, ModPoly};
 use polycore::interp::{master, solve};
-use polycore::modp::{add, inv, mul, pow, sub};
+use polycore::modp::{add, inv, mul, sub};
 use polycore::sample::Rng;
 use polycore::{Fp, Modular};
+use zippel_interp::poly::power_table;
 use zippel_interp::{dense, Dense};
 
 struct Block {
@@ -51,7 +52,14 @@ fn attempt(
     rng: &mut Rng,
 ) -> Result<ModPoly, Failure> {
     let b: Vec<u64> = (0..=m).map(|_| rng.nonzero(p)).collect();
-    let value = |e: &Exps| (1..=m).fold(1, |acc, i| mul(acc, pow(b[i], u64::from(e[i]), p), p));
+    let degs: Vec<usize> = (0..=m)
+        .map(|i| {
+            let s = skeleton.iter().map(|e| e[i] as usize).max().unwrap_or(0);
+            f.degree(i).max(g.degree(i)).max(s)
+        })
+        .collect();
+    let pw = power_table(&b, &degs, p);
+    let value = |e: &Exps| (1..=m).fold(1, |acc, i| mul(acc, pw[i][e[i] as usize], p));
     let blocks = blocks(skeleton, &value, p)?;
     let n_max = blocks.iter().map(|bl| bl.monos.len()).max().unwrap_or(0);
     let total: usize = blocks.iter().map(|bl| bl.monos.len()).sum();
