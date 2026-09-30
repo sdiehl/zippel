@@ -2,7 +2,7 @@
 
 use crate::linzip::linzip;
 use crate::pgcd::{pgcd, reshape};
-use crate::poly::{add_exps, one, Exps, IntPoly, ModPoly};
+use crate::poly::{add_exps, gcd, one, Exps, IntPoly, ModPoly};
 use num_bigint::BigInt;
 use num_integer::Integer;
 use num_traits::{One, Zero};
@@ -20,7 +20,7 @@ pub(crate) fn gcd_z(f: &IntPoly, g: &IntPoly) -> IntPoly {
             h.primitive()
         };
     }
-    let c = f.content().gcd(&g.content());
+    let c = gcd(&f.content(), &g.content());
     let (mf, mg) = (f.min_exps(), g.min_exps());
     let m: Exps = mf.iter().zip(&mg).map(|(a, b)| *a.min(b)).collect();
     let shift = |h: &IntPoly, s: &Exps| {
@@ -75,7 +75,7 @@ fn residue(a: &BigInt, p: u64) -> u64 {
 fn modular(f: &IntPoly, g: &IntPoly) -> IntPoly {
     let n = f.n;
     let mut rng = Rng::new(0x5eed);
-    let gamma = f.lc().gcd(g.lc());
+    let gamma = gcd(f.lc(), g.lc());
     let mut skeleton: Option<Vec<Exps>> = None;
     let mut acc: Vec<BigInt> = Vec::new();
     let mut modulus = BigInt::one();

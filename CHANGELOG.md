@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Bump `groebner` to 0.5, with faster F4 and rational reconstruction.
+- Bump `polycore` to 0.1.3 and take integer contents by Lehmer's gcd, about 3x faster gcd on large coefficients.
+
 ## 0.2.0 (2026-09-27)
 
 - Move polynomials onto `polycore::Poly`.

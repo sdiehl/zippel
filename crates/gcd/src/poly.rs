@@ -56,7 +56,7 @@ impl IntPoly {
     }
 
     pub(crate) fn content(&self) -> BigInt {
-        self.terms.iter().fold(BigInt::zero(), |g, t| g.gcd(&t.1))
+        self.terms.iter().fold(BigInt::zero(), |g, t| gcd(&g, &t.1))
     }
 
     pub(crate) fn min_exps(&self) -> Exps {
@@ -139,6 +139,11 @@ impl IntPoly {
             })
             .collect()
     }
+}
+
+/// Nonnegative integer gcd by Lehmer's algorithm.
+pub(crate) fn gcd(a: &BigInt, b: &BigInt) -> BigInt {
+    polycore::lehmer::gcd(a.magnitude(), b.magnitude()).into()
 }
 
 pub(crate) fn add_exps(a: &[u32], b: &[u32]) -> Exps {
