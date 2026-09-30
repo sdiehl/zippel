@@ -3,7 +3,7 @@
 ## Unreleased
 
 - Bump `groebner` to 0.5, with faster F4 and rational reconstruction.
-- Bump `polycore` to 0.1.3 and take integer contents by Lehmer's gcd, about 3x faster gcd on large coefficients.
+- Bump `polycore` to 0.1.4 and take integer contents by Lehmer's gcd, about 3x faster gcd on large coefficients; its faster modular inverse and in-place univariate gcd save another 7 to 24%.
 - Evaluate monomials from precomputed power tables in `linzip` and `ModPoly` evaluation.
 - Evaluate a variable of `ModPoly` in one pass without dense intermediates, read the leading coefficient directly, and stop the content gcd once it is constant; about 2x faster recursive `pgcd`.
 - Divide exactly by heap division on packed exponents, after cheap rejections by degrees, end terms and the value at one.

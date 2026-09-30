@@ -232,9 +232,9 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
 name = "polycore"
-version = "0.1.3"
+version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "34f6b22ef7e168a207cfc9fe3c1d9a859c4012db474efeb507a6d54727011471"
+checksum = "eb8cb88a69615f021d32b1d326a6b46645a7177b6f6dbd78ca0ba44acdf91b4e"
 dependencies = [
  "machine-prime",
  "num-bigint",
