@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 (2026-10-01)
 
 - Add Hu–Monagan GCD with univariate and bivariate images.
 - Add Huang–Monagan GCD by prime substitution.

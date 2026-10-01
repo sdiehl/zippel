@@ -441,7 +441,7 @@ dependencies = [
 
 [[package]]
 name = "zippel-gcd"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "groebner",
  "insta",
@@ -455,14 +455,14 @@ dependencies = [
 
 [[package]]
 name = "zippel-interp"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "polycore",
 ]
 
 [[package]]
 name = "zippel-laporta"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "insta",
  "num-integer",
@@ -475,7 +475,7 @@ dependencies = [
 
 [[package]]
 name = "zippel-lift"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "insta",
  "num-bigint",

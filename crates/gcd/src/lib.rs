@@ -128,16 +128,16 @@ pub fn gcd(f: &Poly, g: &Poly) -> Poly {
 /// Has the normalization and zero conventions of [`gcd`], with a certified
 /// Zippel fallback when sparse recovery exceeds its budgets.
 #[must_use]
-pub fn gcd_hu_monagan(f: &Poly, g: &Poly) -> Poly {
+pub fn hu_monagan(f: &Poly, g: &Poly) -> Poly {
     gcd_with_algorithm(f, g, GcdAlgorithm::HuMonagan)
 }
 
 /// Hu–Monagan GCD retaining two symbolic variables in each image.
 ///
-/// Uses univariate images for a one-variable ring. See [`gcd_hu_monagan`]
+/// Uses univariate images for a one-variable ring. See [`hu_monagan()`]
 /// for normalization and fallback behavior.
 #[must_use]
-pub fn gcd_hu_monagan_bivariate(f: &Poly, g: &Poly) -> Poly {
+pub fn hu_monagan_bivariate(f: &Poly, g: &Poly) -> Poly {
     gcd_with_algorithm(f, g, GcdAlgorithm::HuMonaganBivariate)
 }
 

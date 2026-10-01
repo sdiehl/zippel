@@ -3,7 +3,7 @@ members = ["crates/*"]
 resolver = "2"
 
 [workspace.package]
-version = "0.2.0"
+version = "0.3.0"
 authors = ["Stephen Diehl <stephen.m.diehl@gmail.com>"]
 categories = ["algorithms", "mathematics"]
 edition = "2021"
@@ -21,8 +21,8 @@ num-rational = "0.4"
 num-traits = "0.2"
 polycore = "0.1.4"
 rayon = "1.10"
-zippel-interp = { path = "crates/interp", version = "0.2.0", default-features = false }
-zippel-lift = { path = "crates/lift", version = "0.2.0", default-features = false }
+zippel-interp = { path = "crates/interp", version = "0.3.0", default-features = false }
+zippel-lift = { path = "crates/lift", version = "0.3.0", default-features = false }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

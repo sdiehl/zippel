@@ -13,8 +13,8 @@ IBP systems are eliminated numerically modulo word-sized primes, and the exact r
 - [`zippel-gcd::pgcd`](crates/gcd/src/pgcd.rs): Zippel's modular GCD with LINZIP interpolation
 - [`zippel-gcd::huang_gao`](crates/gcd/src/huang_gao.rs): Huang–Gao GCD by separated Hensel lifting
 - [`zippel-gcd::huang_monagan`](crates/gcd/src/huang_monagan.rs): Huang–Monagan GCD by prime substitution
-- [`zippel-gcd::gcd_hu_monagan`](crates/gcd/src/hu_monagan.rs): Hu–Monagan GCD and cofactor interpolation
-- [`zippel-gcd::gcd_hu_monagan_bivariate`](crates/gcd/src/hu_monagan.rs): Hu–Monagan GCD with bivariate images
+- [`zippel-gcd::hu_monagan`](crates/gcd/src/hu_monagan.rs): Hu–Monagan GCD and cofactor interpolation
+- [`zippel-gcd::hu_monagan_bivariate`](crates/gcd/src/hu_monagan.rs): Hu–Monagan GCD with bivariate images
 
 ```bash
 cargo build
