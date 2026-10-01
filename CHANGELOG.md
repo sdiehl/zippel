@@ -2,12 +2,18 @@
 
 ## Unreleased
 
-- Bump `groebner` to 0.5, with faster F4 and rational reconstruction.
-- Bump `polycore` to 0.1.4 and take integer contents by Lehmer's gcd, about 3x faster gcd on large coefficients; its faster modular inverse and in-place univariate gcd save another 7 to 24%.
-- Evaluate monomials from precomputed power tables in `linzip` and `ModPoly` evaluation.
-- Evaluate a variable of `ModPoly` in one pass without dense intermediates, read the leading coefficient directly, and stop the content gcd once it is constant; about 2x faster recursive `pgcd`.
-- Divide exactly by heap division on packed exponents, after cheap rejections by degrees, end terms and the value at one.
-- Try the trial division as soon as the CRT residues settle inside the modulus instead of waiting for two equal candidates, and also reconstruct `h / lc(h)` as fractions, which needs far fewer primes when `gcd(lc f, lc g)` is much larger than `lc(h)`.
+- Add Hu–Monagan GCD with univariate and bivariate images.
+- Add Huang–Monagan GCD by prime substitution.
+- Use Huang–Gao separated Hensel lifting by default.
+- Add GCD algorithm selection with Zippel fallback.
+- Add NTT convolution, Newton division and half-GCD.
+- Bump `groebner` to 0.5.
+- Bump `polycore` to 0.1.4.
+- Cache monomial powers for modular evaluation.
+- Stream variable evaluations and leading coefficients.
+- Stop content GCDs at constants.
+- Add exact heap division on packed exponents.
+- Try CRT candidates early and reconstruct normalized coefficients as fractions.
 
 ## 0.2.0 (2026-09-27)
 

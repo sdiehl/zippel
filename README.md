@@ -9,7 +9,12 @@ IBP systems are eliminated numerically modulo word-sized primes, and the exact r
 - [`zippel-interp::benor`](crates/interp/src/benor.rs): Ben-Or/Tiwari interpolation from about two evaluations per term
 - [`zippel-lift`](crates/lift): Lifts to Q by CRT and rational number reconstruction
 - [`zippel-laporta`](crates/laporta): IBP generation and Laporta elimination over GF(p)
-- [`zippel-gcd`](crates/gcd): Multivariate GCD, cofactors and LCM of [polycore](https://crates.io/crates/polycore) polynomials via LINZIP
+- [`zippel-gcd`](crates/gcd): Multivariate GCD, cofactors and LCM of [polycore](https://crates.io/crates/polycore) polynomials
+- [`zippel-gcd::pgcd`](crates/gcd/src/pgcd.rs): Zippel's modular GCD with LINZIP interpolation
+- [`zippel-gcd::huang_gao`](crates/gcd/src/huang_gao.rs): Huang–Gao GCD by separated Hensel lifting
+- [`zippel-gcd::huang_monagan`](crates/gcd/src/huang_monagan.rs): Huang–Monagan GCD by prime substitution
+- [`zippel-gcd::gcd_hu_monagan`](crates/gcd/src/hu_monagan.rs): Hu–Monagan GCD and cofactor interpolation
+- [`zippel-gcd::gcd_hu_monagan_bivariate`](crates/gcd/src/hu_monagan.rs): Hu–Monagan GCD with bivariate images
 
 ```bash
 cargo build
@@ -63,6 +68,10 @@ I(2,2) = (d^2 - 9*d + 18) / (s^2) * I(1,1)
 
 ## References
 
+- J. Hu, M. Monagan, _A fast parallel sparse polynomial GCD algorithm_, [J. Symbolic Comput. 105 (2021)](https://www.cecm.sfu.ca/~mmonagan/papers/HuGCDaccept.pdf).
+- M. Monagan, _Speeding up polynomial GCD, a crucial operation in Maple_, [Maple Transactions (2022)](https://mapletransactions.org/index.php/maple/article/view/14452).
+- Q.-L. Huang, M. Monagan, _A New Sparse Algorithm for Polynomial GCD over Integers_, [arXiv:2609.10626v1](https://arxiv.org/abs/2609.10626v1), 2026.
+- Q.-L. Huang, X.-S. Gao, _Sparse Polynomial GCD Algorithms Asymptotically Linear in All Fundamental Parameters_, [arXiv:2609.08074v1](https://arxiv.org/abs/2609.08074v1), 2026.
 - R. Zippel, _Probabilistic algorithms for sparse polynomials_, EUROSAM 1979.
 - R. Zippel, _Interpolating polynomials from their values_, J. Symbolic Comput. 9 (1990).
 - J. de Kleine, M. Monagan, A. Wittkopf, _Algorithms for the non-monic case of the sparse modular GCD algorithm_, ISSAC 2005.

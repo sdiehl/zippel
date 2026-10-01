@@ -1,8 +1,10 @@
-//! Gcd over Z: strip contents, then join Zippel images modulo word-sized primes by CRT.
+//! GCD over Z: Huang–Gao or Huang–Monagan recovery with a Zippel fallback.
 
+use crate::fast::Arithmetic;
 use crate::linzip::linzip;
 use crate::pgcd::{pgcd, reshape};
 use crate::poly::{add_exps, gcd, one, Exps, IntPoly, ModPoly};
+use crate::GcdAlgorithm;
 use num_bigint::BigInt;
 use num_integer::Integer;
 use num_traits::{One, Zero};
@@ -12,7 +14,7 @@ use polycore::sample::Rng;
 use std::iter::once;
 
 /// `gcd(f, g)` up to sign.
-pub(crate) fn gcd_z(f: &IntPoly, g: &IntPoly) -> IntPoly {
+pub(crate) fn gcd_z(f: &IntPoly, g: &IntPoly, algorithm: GcdAlgorithm) -> IntPoly {
     if f.is_zero() || g.is_zero() {
         let h = if f.is_zero() { g } else { f };
         return if h.is_zero() {
@@ -28,27 +30,57 @@ pub(crate) fn gcd_z(f: &IntPoly, g: &IntPoly) -> IntPoly {
         h.primitive()
             .map(|e, x| (e.iter().zip(s).map(|(a, b)| a - b).collect(), x.clone()))
     };
-    let h = gcd_shifted(&shift(f, &mf), &shift(g, &mg));
+    let h = gcd_shifted(&shift(f, &mf), &shift(g, &mg), algorithm);
     h.map(|e, x| (add_exps(e, &m), x * &c))
 }
 
-/// Main variable is the shared one of largest degree; its content comes from recursion on the
-/// coefficients, leaving the modular stage a gcd that is primitive in `x_0`.
-fn gcd_shifted(f: &IntPoly, g: &IntPoly) -> IntPoly {
+/// Separated lifting handles all variables and their polynomial contents at once.
+/// Prime substitution supplies another recovery path before the Zippel fallback.
+fn gcd_shifted(f: &IntPoly, g: &IntPoly, algorithm: GcdAlgorithm) -> IntPoly {
     let n = f.n;
     let shared = (0..n).filter(|&k| f.degree(k) > 0 && g.degree(k) > 0);
     let Some(x0) = shared.max_by_key(|&k| f.degree(k).min(g.degree(k))) else {
         return one(n);
     };
+    if algorithm == GcdAlgorithm::HuangGao {
+        if let Some(h) = modular(f, g, Backend::Separated) {
+            return h;
+        }
+    }
+    if matches!(
+        algorithm,
+        GcdAlgorithm::HuangGao | GcdAlgorithm::HuangMonagan
+    ) {
+        if let Some(h) = crate::huang_monagan::gcd(f, g) {
+            return h;
+        }
+    }
     let perm: Vec<usize> = once(x0).chain((0..n).filter(|&k| k != x0)).collect();
     let mut back = vec![0; n];
     perm.iter().enumerate().for_each(|(i, &k)| back[k] = i);
     let (f, g) = (f.permute(&perm), g.permute(&perm));
     let (cf, cg) = (content_x0(&f), content_x0(&g));
-    let cont = gcd_z(&cf, &cg);
+    let cont = gcd_z(&cf, &cg, GcdAlgorithm::Zippel);
     let pf = f.div_exact(&cf).expect("content divides");
     let pg = g.div_exact(&cg).expect("content divides");
-    modular(&pf, &pg).mul(&cont).permute(&back)
+    let sparse = match algorithm {
+        GcdAlgorithm::HuMonagan => Some(1),
+        GcdAlgorithm::HuMonaganBivariate => Some(n.min(2)),
+        _ => None,
+    }
+    .and_then(|keep| {
+        let (a, b) = if pf.terms.len() <= pg.terms.len() {
+            (&pf, &pg)
+        } else {
+            (&pg, &pf)
+        };
+        modular(a, b, Backend::HuMonagan(keep))
+    });
+    sparse
+        .or_else(|| modular(&pf, &pg, Backend::Zippel))
+        .expect("Zippel retries until reconstruction succeeds")
+        .mul(&cont)
+        .permute(&back)
 }
 
 fn content_x0(f: &IntPoly) -> IntPoly {
@@ -56,7 +88,7 @@ fn content_x0(f: &IntPoly) -> IntPoly {
     let first = coeffs.next().expect("nonzero");
     coeffs
         .try_fold(first, |acc, c| {
-            let h = gcd_z(&acc, &c);
+            let h = gcd_z(&acc, &c, GcdAlgorithm::Zippel);
             if h.is_constant() {
                 Err(())
             } else {
@@ -70,10 +102,25 @@ fn residue(a: &BigInt, p: u64) -> u64 {
     u64::try_from(a.mod_floor(&BigInt::from(p))).expect("reduced")
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Backend {
+    Separated,
+    Univariate,
+    HuMonagan(usize),
+    Zippel,
+}
+
+/// Primitive univariate integer GCD for prime-substituted inputs. This calls
+/// the modular CRT engine directly, never the multivariate dispatch recursively.
+pub(crate) fn univariate(f: &IntPoly, g: &IntPoly) -> Option<IntPoly> {
+    debug_assert!(f.n == 1 && g.n == 1 && !f.is_zero() && !g.is_zero());
+    modular(f, g, Backend::Univariate)
+}
+
 /// Images are scaled so their leading coefficient is `gcd(lc f, lc g)`, which makes them agree
 /// across primes. A candidate that divides both inputs is the gcd, since its leading monomial is
 /// no smaller than the true one.
-fn modular(f: &IntPoly, g: &IntPoly) -> IntPoly {
+fn modular(f: &IntPoly, g: &IntPoly, backend: Backend) -> Option<IntPoly> {
     let n = f.n;
     let mut rng = Rng::new(0x5eed);
     let gamma = gcd(f.lc(), g.lc());
@@ -82,21 +129,57 @@ fn modular(f: &IntPoly, g: &IntPoly) -> IntPoly {
     let mut modulus = BigInt::one();
     let mut images = 0usize;
     let mut tried: Option<IntPoly> = None;
-    for p in Primes::new() {
+    let primes: Box<dyn Iterator<Item = u64>> = if let Backend::HuMonagan(keep) = backend {
+        Box::new(crate::geometric::Encoding::new(&f.degrees()[keep..])?.primes())
+    } else {
+        Box::new(Primes::new())
+    };
+    for (attempt, p) in primes.enumerate() {
+        if matches!(backend, Backend::Univariate | Backend::HuMonagan(_)) && attempt >= 256 {
+            return None;
+        }
         let gp_ = residue(&gamma, p);
         let (fp, gp) = (f.reduce(p), g.reduce(p));
         if gp_ == 0 || fp.lm() != f.terms[0].0 || gp.lm() != g.terms[0].0 {
             continue;
         }
-        if skeleton.is_none() && coprime(&fp, &gp, p, &mut rng) {
-            return one(n);
+        if backend == Backend::Zippel && skeleton.is_none() && coprime(&fp, &gp, p, &mut rng) {
+            return Some(one(n));
         }
-        let sparse = skeleton
-            .as_deref()
-            .filter(|_| n >= 2)
-            .and_then(|s| linzip(&fp, &gp, s, n - 1, p, &mut rng));
-        let Some(h) = sparse.or_else(|| pgcd(&fp, &gp, n - 1, p, &mut rng)) else {
-            continue;
+        let h = if backend == Backend::Separated {
+            // A declined field attempt restarts with the established Zippel path;
+            // never combine a partial factor with the CRT accumulator.
+            crate::huang_gao::gcd(&fp, &gp, p, &mut rng)?
+        } else if let Backend::HuMonagan(keep) = backend {
+            crate::hu_monagan::gcd(&fp, &gp, keep, p, &mut rng)?
+        } else if backend == Backend::Univariate {
+            let dense = |f: &ModPoly| {
+                let mut cs = vec![0; f.degree(0) + 1];
+                for (e, c) in &f.terms {
+                    cs[e[0] as usize] = *c;
+                }
+                cs
+            };
+            let h = Arithmetic { p }.gcd(&dense(&fp), &dense(&gp));
+            ModPoly {
+                n: 1,
+                terms: h
+                    .into_iter()
+                    .enumerate()
+                    .rev()
+                    .filter(|(_, c)| *c != 0)
+                    .map(|(e, c)| (vec![e as u32], c))
+                    .collect(),
+            }
+        } else {
+            let sparse = skeleton
+                .as_deref()
+                .filter(|_| n >= 2)
+                .and_then(|s| linzip(&fp, &gp, s, n - 1, p, &mut rng));
+            let Some(h) = sparse.or_else(|| pgcd(&fp, &gp, n - 1, p, &mut rng)) else {
+                continue;
+            };
+            h
         };
         let mut h = h.monic(p);
         h.scale(gp_, p);
@@ -128,11 +211,11 @@ fn modular(f: &IntPoly, g: &IntPoly) -> IntPoly {
             continue;
         };
         if f.div_exact(&h).is_some() && g.div_exact(&h).is_some() {
-            return h;
+            return Some(h);
         }
         tried = Some(h);
     }
-    unreachable!("ran out of primes")
+    None
 }
 
 /// Bits of headroom below the modulus that make a reconstruction worth a trial division.
@@ -173,4 +256,29 @@ fn coprime(f: &ModPoly, g: &ModPoly, p: u64, rng: &mut Rng) -> bool {
     let point: Vec<u64> = (0..f.n).map(|_| rng.nonzero(p)).collect();
     let (uf, ug) = (f.eval_except(0, &point, p), g.eval_except(0, &point, p));
     uf.deg() == f.degree(0) && ug.deg() == g.degree(0) && uf.gcd(&ug).0.len() == 1
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use polycore::{Order, Ring};
+
+    #[test]
+    fn hu_monagan_crt_recovers_large_and_initially_missing_coefficients() {
+        let ring = Ring::new(["x", "y", "z"], Order::Lex);
+        let prime = crate::geometric::Encoding::new(&[4, 4])
+            .unwrap()
+            .primes()
+            .next()
+            .unwrap();
+        let large = (BigInt::one() << 190) + BigInt::from(321);
+        let h = ring.parse(&format!("x^3+{large}*x*y+{prime}*z+1")).unwrap();
+        let a = crate::integral(&(&h * &ring.parse("x+y+2").unwrap())).0;
+        let b = crate::integral(&(&h * &ring.parse("x+z+3").unwrap())).0;
+        for keep in [1, 2] {
+            let g =
+                modular(&a, &b, Backend::HuMonagan(keep)).expect("Hu–Monagan CRT without fallback");
+            assert_eq!(g, crate::integral(&h).0);
+        }
+    }
 }
