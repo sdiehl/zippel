@@ -7,9 +7,9 @@
 //! division, and small fields are declined rather than
 //! extended. The integer driver falls back to Zippel when a budget is exhausted.
 
-use crate::fast::Arithmetic;
 use crate::images::degree_bounds;
 use crate::poly::{Exps, ModPoly};
+use polycore::fast::PrimeField;
 use polycore::modp::{add, from_signed, inv, mul, pow, sub, symmetric};
 use polycore::sample::Rng;
 use std::collections::BTreeMap;
@@ -134,7 +134,7 @@ fn evaluation(series: &Series, j: usize) -> Vec<u64> {
 /// Algorithms 3 and 5, steps 5–17: the derivative of the monic GCD factor
 /// is rem(H^{-1} * derivative(A + c B), G), including repeated GCD factors.
 fn lift(a: &Series, b: &Series, n: usize, c: u64, p: u64) -> Option<Series> {
-    let field = Arithmetic { p };
+    let field = PrimeField::new(p).expect("prime modulus");
     let aa: Vec<_> = (0..3).map(|j| evaluation(a, j)).collect();
     let bb: Vec<_> = (0..3).map(|j| evaluation(b, j)).collect();
     let gg: Vec<_> = aa.iter().zip(&bb).map(|(a, b)| field.gcd(a, b)).collect();
@@ -160,7 +160,7 @@ fn lift(a: &Series, b: &Series, n: usize, c: u64, p: u64) -> Option<Series> {
         return Some(result);
     }
     let f = field.add(&aa[0], &field.scale(&bb[0], c));
-    let (h, rem) = field.divrem(&f, &gg[0]);
+    let (h, rem) = field.divrem(&f, &gg[0])?;
     if !rem.is_empty() {
         return None;
     }
@@ -174,7 +174,7 @@ fn lift(a: &Series, b: &Series, n: usize, c: u64, p: u64) -> Option<Series> {
         for (&d, jet) in b {
             cs[index(d)] = add(cs[index(d)], mul(c, jet.derivatives[k], p), p);
         }
-        let derivative = field.divrem(&field.mul(&v, &cs), &gg[0]).1;
+        let derivative = field.divrem(&field.mul(&v, &cs), &gg[0])?.1;
         for (&d, jet) in &mut result {
             jet.derivatives[k] = derivative.get(index(d)).copied().unwrap_or(0);
         }

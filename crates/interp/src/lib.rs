@@ -9,6 +9,7 @@
 )]
 
 pub mod benor;
+pub mod geometric;
 pub mod poly;
 pub mod rational;
 pub mod zippel;

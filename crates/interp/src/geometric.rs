@@ -1,13 +1,14 @@
 //! Ben-Or/Tiwari recovery in a smooth subgroup, with mixed-radix exponents.
 
 use polycore::interp::{solve, Massey};
-use polycore::modp::{add, inv, is_prime, mul, pow};
+use polycore::modp::{add, inv, mul, pow, PowerOfTwoSubgroup, SmoothPrimes};
 use polycore::sample::Rng;
 use polycore::{Fp, Modular};
 
 /// Injective Kronecker encoding within a power-of-two subgroup. The bound is
 /// on the entire exponent box, not just the number of terms to recover.
-pub(crate) struct Encoding {
+#[derive(Clone, Debug)]
+pub struct Encoding {
     radices: Vec<u64>,
     strides: Vec<u64>,
     size: u64,
@@ -15,7 +16,8 @@ pub(crate) struct Encoding {
 }
 
 impl Encoding {
-    pub(crate) fn new(degrees: &[u32]) -> Option<Self> {
+    /// A collision-free exponent box of at most 48 bits, or None if too large.
+    pub fn new(degrees: &[u32]) -> Option<Self> {
         let mut size = 1u64;
         let mut strides = Vec::new();
         let radices: Vec<_> = degrees.iter().map(|&d| u64::from(d) + 1).collect();
@@ -48,60 +50,30 @@ impl Encoding {
         )
     }
 
-    pub(crate) const fn primes(&self) -> SmoothPrimes {
-        let step = 1u64 << self.bits;
-        let odd = (((1u64 << 62) - 1) / step) | 1;
-        SmoothPrimes {
-            next: odd * step + 1,
-            step: 2 * step,
-        }
+    pub fn primes(&self) -> SmoothPrimes {
+        SmoothPrimes::new(self.bits).expect("encoding uses 32..=48 bits")
     }
 }
 
-/// Distinct word-sized primes whose multiplicative groups contain the needed
-/// smooth subgroup. Its exact order avoids factoring the odd part of p - 1.
-pub(crate) struct SmoothPrimes {
-    next: u64,
-    step: u64,
-}
-
-impl Iterator for SmoothPrimes {
-    type Item = u64;
-    fn next(&mut self) -> Option<u64> {
-        while self.next > self.step {
-            let p = self.next;
-            self.next -= self.step;
-            if is_prime(p) {
-                return Some(p);
-            }
-        }
-        None
-    }
-}
-
-pub(crate) struct Orbit<'a> {
+/// Randomly scaled geometric sampling in the encoding's smooth subgroup.
+#[derive(Clone, Debug)]
+pub struct Orbit<'a> {
     encoding: &'a Encoding,
-    root: u64,
+    group: PowerOfTwoSubgroup,
     p: u64,
     scale: Vec<u64>,
     ratios: Vec<u64>,
 }
 
 impl<'a> Orbit<'a> {
-    pub(crate) fn new(encoding: &'a Encoding, p: u64, rng: &mut Rng) -> Option<Self> {
-        let order = 1u64 << encoding.bits;
-        if !(p - 1).is_multiple_of(order) {
-            return None;
-        }
-        let root = (0..32).find_map(|_| {
-            let r = pow(rng.nonzero(p), (p - 1) / order, p);
-            (pow(r, order / 2, p) != 1).then_some(r)
-        })?;
+    pub fn new(encoding: &'a Encoding, p: u64, rng: &mut Rng) -> Option<Self> {
+        let group = PowerOfTwoSubgroup::new(p, encoding.bits, rng)?;
+        let root = group.generator();
         let ratios = encoding.strides.iter().map(|&s| pow(root, s, p)).collect();
         let scale: Vec<_> = encoding.radices.iter().map(|_| rng.nonzero(p)).collect();
         Some(Self {
             encoding,
-            root,
+            group,
             p,
             scale,
             ratios,
@@ -110,7 +82,12 @@ impl<'a> Orbit<'a> {
 
     /// Initial monomial value and geometric ratio. Subsequent evaluations
     /// need one multiplication per input term (Hu–Monagan, Section 5.1).
-    pub(crate) fn monomial(&self, exponents: &[u32]) -> (u64, u64) {
+    pub fn monomial(&self, exponents: &[u32]) -> (u64, u64) {
+        assert_eq!(
+            exponents.len(),
+            self.scale.len(),
+            "monomial dimension differs"
+        );
         let at = |point: &[u64]| {
             exponents.iter().zip(point).fold(1, |v, (&e, &x)| {
                 mul(v, pow(x, u64::from(e), self.p), self.p)
@@ -119,39 +96,43 @@ impl<'a> Orbit<'a> {
         (at(&self.scale), at(&self.ratios))
     }
 
-    /// Binary Pohlig-Hellman in the subgroup of order 2^bits.
-    fn log(&self, mut value: u64) -> Option<u64> {
-        let mut inverse = inv(self.root, self.p);
-        let mut exponent = 0;
-        for bit in 0..self.encoding.bits {
-            match pow(value, 1u64 << (self.encoding.bits - bit - 1), self.p) {
-                1 => {}
-                minus_one if minus_one == self.p - 1 => {
-                    exponent |= 1u64 << bit;
-                    value = mul(value, inverse, self.p);
-                }
-                _ => return None,
-            }
-            inverse = mul(inverse, inverse, self.p);
-        }
-        (value == 1).then_some(exponent)
+    /// Scale and ratio vectors for successive geometric evaluations.
+    pub fn scale(&self) -> &[u64] {
+        &self.scale
+    }
+    pub fn ratios(&self) -> &[u64] {
+        &self.ratios
+    }
+
+    fn log(&self, value: u64) -> Option<u64> {
+        self.group.log(value)
     }
 }
 
-#[derive(Default)]
-pub(crate) struct Stream {
+/// Incremental Ben-Or/Tiwari samples at consecutive powers starting at one.
+#[derive(Clone, Debug, Default)]
+pub struct Stream {
     recurrence: Massey<Fp>,
     values: Vec<u64>,
+    modulus: Option<u64>,
 }
 
 impl Stream {
-    pub(crate) fn push(&mut self, value: u64, p: u64) {
+    /// Add one sample. All samples must belong to the same prime field.
+    pub fn push(&mut self, value: u64, p: u64) {
+        if let Some(previous) = self.modulus {
+            assert_eq!(p, previous, "incompatible sample fields");
+        } else {
+            assert!(polycore::modp::is_prime(p), "modulus must be prime");
+            self.modulus = Some(p);
+        }
+        let value = value % p;
         self.recurrence.push(Fp::new(value, p));
         self.values.push(value);
     }
 
-    pub(crate) fn recover(&self, orbit: &Orbit<'_>) -> Option<Vec<(Vec<u32>, u64)>> {
-        if !self.recurrence.settled(2) {
+    pub fn recover(&self, orbit: &Orbit<'_>) -> Option<Vec<(Vec<u32>, u64)>> {
+        if self.modulus != Some(orbit.p) || !self.recurrence.settled(2) {
             return None;
         }
         let t = self.recurrence.complexity();
@@ -201,15 +182,39 @@ mod tests {
     use super::*;
 
     #[test]
+    #[should_panic(expected = "incompatible sample fields")]
+    fn rejects_mixed_sample_fields() {
+        let mut stream = Stream::default();
+        stream.push(1, 101);
+        stream.push(1, 103);
+    }
+
+    #[test]
+    fn normalizes_samples_and_checks_the_recovery_field() {
+        let encoding = Encoding::new(&[1]).unwrap();
+        let mut primes = encoding.primes();
+        let p = primes.next().unwrap();
+        let q = primes.next().unwrap();
+        let orbit = Orbit::new(&encoding, p, &mut Rng::new(9)).unwrap();
+        let other = Orbit::new(&encoding, q, &mut Rng::new(9)).unwrap();
+        let mut stream = Stream::default();
+        for _ in 0..4 {
+            stream.push(p + 7, p);
+        }
+        assert_eq!(stream.recover(&orbit), Some(vec![(vec![0], 7)]));
+        assert!(stream.recover(&other).is_none());
+    }
+
+    #[test]
     fn smooth_primes_and_binary_logs_cover_the_subgroup() {
         let encoding = Encoding::new(&[100_000, 100_000]).unwrap();
         let primes: Vec<_> = encoding.primes().take(3).collect();
         assert!(primes.windows(2).all(|w| w[0] > w[1]));
         for p in primes {
-            assert!(is_prime(p));
+            assert!(polycore::modp::is_prime(p));
             let orbit = Orbit::new(&encoding, p, &mut Rng::new(17)).unwrap();
             for e in [0, 1, 53, encoding.size - 1, (1u64 << encoding.bits) - 1] {
-                assert_eq!(orbit.log(pow(orbit.root, e, p)), Some(e));
+                assert_eq!(orbit.log(orbit.group.pow(e)), Some(e));
             }
             assert_eq!(orbit.log(0), None);
             assert!((2..100).any(|v| orbit.log(v).is_none()));

@@ -1,8 +1,8 @@
 //! Sparse polynomials over GF(p) in lex order (variable 0 most significant), terms descending.
 
+pub use polycore::evaluation::power_table;
 use polycore::modp::{add, inv, mul};
 use polycore::{Fp, Modular, Uni};
-use std::iter::successors;
 
 pub type Exps = Vec<u32>;
 
@@ -13,18 +13,6 @@ pub fn dense(cs: impl IntoIterator<Item = u64>, p: u64) -> Dense {
     Uni::new(cs.into_iter().map(|c| Fp::new(c, p)).collect())
 }
 
-/// `x[i]^j` for `j <= d[i]`, so evaluating a monomial takes one multiply per variable.
-pub fn power_table(x: &[u64], d: &[usize], p: u64) -> Vec<Vec<u64>> {
-    x.iter()
-        .zip(d)
-        .map(|(&xi, &di)| {
-            successors(Some(1 % p), |&v| Some(mul(v, xi, p)))
-                .take(di + 1)
-                .collect()
-        })
-        .collect()
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ModPoly {
     pub n: usize,
@@ -32,6 +20,37 @@ pub struct ModPoly {
 }
 
 impl ModPoly {
+    /// Convert the lexicographic residue layout to a polycore polynomial.
+    pub fn to_poly(&self, p: u64) -> polycore::Poly<Fp> {
+        polycore::Poly::new(
+            self.terms
+                .iter()
+                .map(|(e, c)| (polycore::Monomial::new(e.clone()), Fp::new(*c, p)))
+                .collect(),
+            self.n,
+            polycore::Order::Lex,
+        )
+    }
+
+    /// Convert a prime-field polynomial to canonical descending lex order.
+    pub fn from_poly(f: &polycore::Poly<Fp>, p: u64) -> Self {
+        let f = f.reorder(polycore::Order::Lex);
+        assert!(
+            f.terms
+                .iter()
+                .all(|(_, c)| c.modulus() == 0 || c.modulus() == p),
+            "incompatible prime fields"
+        );
+        Self {
+            n: f.nvars,
+            terms: f
+                .terms
+                .iter()
+                .map(|(m, c)| (m.exps().to_vec(), c.residue_mod(p)))
+                .collect(),
+        }
+    }
+
     pub fn lm(&self) -> &[u32] {
         &self.terms[0].0
     }
@@ -152,7 +171,14 @@ impl ModPoly {
         let mut degs = self.degrees();
         let mut d = vec![0; degs[k] + 1];
         degs[k] = 0;
-        let pw = power_table(point, &degs, p);
+        assert!(point.len() <= self.n, "point dimension exceeds polynomial");
+        assert!(
+            degs[point.len()..].iter().all(|&d| d == 0),
+            "missing evaluation coordinate"
+        );
+        let mut point = point.to_vec();
+        point.resize(self.n, 1);
+        let pw = power_table(&point, &degs, p);
         for (e, c) in &self.terms {
             let v = e
                 .iter()

@@ -50,10 +50,8 @@
     clippy::module_name_repetitions
 )]
 
-mod fast;
 mod frac;
 mod gcd;
-mod geometric;
 mod hu_monagan;
 mod huang_gao;
 mod huang_monagan;

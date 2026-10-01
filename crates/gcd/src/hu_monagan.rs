@@ -6,15 +6,16 @@
 //! Section 3. The smooth subgroup and exact certificates are implementation
 //! choices; these bounded paths do not claim the papers' parallel complexity.
 
-use crate::fast::Arithmetic;
-use crate::geometric::{Encoding, Orbit, Stream};
 use crate::images::degree_bounds;
 use crate::modular_division::quotient;
 use crate::pgcd::pgcd;
 use crate::poly::{Exps, ModPoly};
-use polycore::modp::{add, mul};
+use polycore::fast::PrimeField;
+#[cfg(test)]
+use polycore::modp::mul;
 use polycore::sample::Rng;
 use std::collections::BTreeMap;
+use zippel_interp::geometric::{Encoding, Orbit, Stream};
 
 const MAX_SAMPLES: usize = 256;
 const MAX_CELLS: usize = 2_000_000;
@@ -71,43 +72,31 @@ impl Interpolant {
     }
 }
 
-/// Evaluate consecutive geometric samples by updating each term once.
-/// Prefix groups stay fixed even when a coefficient vanishes at one sample.
-struct ImageSequence {
-    keep: usize,
-    groups: BTreeMap<Exps, Vec<(u64, u64)>>,
-}
+/// Adapter from the residue representation to polycore's reusable evaluator.
+struct ImageSequence(polycore::evaluation::GeometricEvaluator<polycore::Fp>);
 
 impl ImageSequence {
     fn new(f: &ModPoly, keep: usize, orbit: &Orbit<'_>, p: u64) -> Self {
-        let mut groups: BTreeMap<Exps, Vec<(u64, u64)>> = BTreeMap::new();
-        for (e, c) in &f.terms {
-            let (value, ratio) = orbit.monomial(&e[keep..]);
-            groups
-                .entry(e[..keep].to_vec())
-                .or_default()
-                .push((mul(*c, value, p), ratio));
-        }
-        Self { keep, groups }
+        let scale: Vec<_> = orbit
+            .scale()
+            .iter()
+            .map(|&v| polycore::Fp::new(v, p))
+            .collect();
+        let ratios: Vec<_> = orbit
+            .ratios()
+            .iter()
+            .map(|&v| polycore::Fp::new(v, p))
+            .collect();
+        Self(polycore::evaluation::GeometricEvaluator::new(
+            &f.to_poly(p),
+            keep,
+            &scale,
+            &ratios,
+        ))
     }
 
     fn advance(&mut self, p: u64) -> ModPoly {
-        let terms = self
-            .groups
-            .iter_mut()
-            .rev()
-            .filter_map(|(e, terms)| {
-                let c = terms.iter_mut().fold(0, |sum, (value, ratio)| {
-                    *value = mul(*value, *ratio, p);
-                    add(sum, *value, p)
-                });
-                (c != 0).then(|| (e.clone(), c))
-            })
-            .collect();
-        ModPoly {
-            n: self.keep,
-            terms,
-        }
+        ModPoly::from_poly(&self.0.advance(), p)
     }
 }
 
@@ -122,7 +111,9 @@ fn image_gcd(a: &ModPoly, b: &ModPoly, p: u64, rng: &mut Rng) -> Option<ModPoly>
         }
         cs
     };
-    let h = Arithmetic { p }.gcd(&dense(a), &dense(b));
+    let h = PrimeField::new(p)
+        .expect("prime modulus")
+        .gcd(&dense(a), &dense(b));
     Some(ModPoly {
         n: 1,
         terms: h

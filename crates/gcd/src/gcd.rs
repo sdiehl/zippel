@@ -1,6 +1,5 @@
 //! GCD over Z: explicit recovery backends and an automatic fallback chain.
 
-use crate::fast::Arithmetic;
 use crate::linzip::linzip;
 use crate::pgcd::{pgcd, reshape};
 use crate::poly::{add_exps, gcd, one, Exps, IntPoly, ModPoly};
@@ -9,6 +8,7 @@ use num_bigint::BigInt;
 use num_integer::Integer;
 use num_traits::{One, Zero};
 use polycore::crt::WangContext;
+use polycore::fast::PrimeField;
 use polycore::modp::{inv, mul, sub, Primes};
 use polycore::sample::Rng;
 use std::iter::once;
@@ -136,7 +136,7 @@ fn modular(f: &IntPoly, g: &IntPoly, backend: Backend) -> Option<IntPoly> {
     let mut images = 0usize;
     let mut tried: Option<IntPoly> = None;
     let primes: Box<dyn Iterator<Item = u64>> = if let Backend::HuMonagan(keep) = backend {
-        Box::new(crate::geometric::Encoding::new(&f.degrees()[keep..])?.primes())
+        Box::new(zippel_interp::geometric::Encoding::new(&f.degrees()[keep..])?.primes())
     } else {
         Box::new(Primes::new())
     };
@@ -166,7 +166,9 @@ fn modular(f: &IntPoly, g: &IntPoly, backend: Backend) -> Option<IntPoly> {
                 }
                 cs
             };
-            let h = Arithmetic { p }.gcd(&dense(&fp), &dense(&gp));
+            let h = PrimeField::new(p)
+                .expect("prime modulus")
+                .gcd(&dense(&fp), &dense(&gp));
             ModPoly {
                 n: 1,
                 terms: h
@@ -272,7 +274,7 @@ mod tests {
     #[test]
     fn hu_monagan_crt_recovers_large_and_initially_missing_coefficients() {
         let ring = Ring::new(["x", "y", "z"], Order::Lex);
-        let prime = crate::geometric::Encoding::new(&[4, 4])
+        let prime = zippel_interp::geometric::Encoding::new(&[4, 4])
             .unwrap()
             .primes()
             .next()

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Move arithmetic, evaluation and exact division utilities into polycore.
+- Move geometric sparse recovery into `zippel-interp`.
 - Expose each GCD algorithm through a named function.
 - Return `Option` from named sparse GCD methods without automatic fallback.
 

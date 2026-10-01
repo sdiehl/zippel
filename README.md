@@ -7,6 +7,7 @@ IBP systems are eliminated numerically modulo word-sized primes, and the exact r
 - [`zippel-interp`](crates/interp): Zippel's black-box sparse polynomial interpolation over prime fields
 - [`zippel-interp::rational`](crates/interp/src/rational.rs): Rational function reconstruction ala the method of Thiele and Zippel
 - [`zippel-interp::benor`](crates/interp/src/benor.rs): Ben-Or/Tiwari interpolation from about two evaluations per term
+- [`zippel-interp::geometric`](crates/interp/src/geometric.rs): Sparse recovery with smooth-subgroup exponent decoding
 - [`zippel-lift`](crates/lift): Lifts to Q by CRT and rational number reconstruction
 - [`zippel-laporta`](crates/laporta): IBP generation and Laporta elimination over GF(p)
 - [`zippel-gcd`](crates/gcd): Multivariate GCD, cofactors and LCM of [polycore](https://crates.io/crates/polycore) polynomials
