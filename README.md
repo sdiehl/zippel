@@ -10,8 +10,8 @@ IBP systems are eliminated numerically modulo word-sized primes, and the exact r
 - [`zippel-lift`](crates/lift): Lifts to Q by CRT and rational number reconstruction
 - [`zippel-laporta`](crates/laporta): IBP generation and Laporta elimination over GF(p)
 - [`zippel-gcd`](crates/gcd): Multivariate GCD, cofactors and LCM of [polycore](https://crates.io/crates/polycore) polynomials
-- [`zippel-gcd::pgcd`](crates/gcd/src/pgcd.rs): Zippel's modular GCD with LINZIP interpolation
-- [`zippel-gcd::huang_gao`](crates/gcd/src/huang_gao.rs): Huang–Gao GCD by separated Hensel lifting
+- [`zippel-gcd::zippel`](crates/gcd/src/pgcd.rs): Zippel's modular GCD with LINZIP interpolation
+- [`zippel-gcd::huang_gao`](crates/gcd/src/huang_gao.rs): Huang–Gao GCD by separated Hensel lifting (asymptotic SOTA, 2026)
 - [`zippel-gcd::huang_monagan`](crates/gcd/src/huang_monagan.rs): Huang–Monagan GCD by prime substitution
 - [`zippel-gcd::hu_monagan`](crates/gcd/src/hu_monagan.rs): Hu–Monagan GCD and cofactor interpolation
 - [`zippel-gcd::hu_monagan_bivariate`](crates/gcd/src/hu_monagan.rs): Hu–Monagan GCD with bivariate images

@@ -9,7 +9,7 @@ license.workspace = true
 readme.workspace = true
 repository.workspace = true
 rust-version.workspace = true
-description = "Sparse polynomial GCD by Huang-Gao lifting and Huang-Monagan substitution with a Zippel fallback."
+description = "Sparse multivariate polynomial GCD, cofactors and LCM over the rationals."
 
 [features]
 default = ["parallel"]

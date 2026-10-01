@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Expose each GCD algorithm through a named function.
+- Return `Option` from named sparse GCD methods without automatic fallback.
+
 ## 0.3.0 (2026-10-01)
 
 - Add Hu–Monagan GCD with univariate and bivariate images.

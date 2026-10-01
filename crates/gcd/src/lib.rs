@@ -1,16 +1,45 @@
-//! Sparse multivariate polynomial GCD using Huang–Gao derivative-aided separated
-//! Hensel lifting, Huang–Monagan prime substitution and Hu–Monagan geometric
-//! interpolation, with a Zippel/LINZIP fallback.
+//! Sparse multivariate polynomial GCD, cofactors and LCM over the rationals.
 //!
-//! The default path uses weighted projections, one derivative lift per variable,
-//! collision detection and iterative sparse recovery. Fast NTT convolution,
-//! Newton division and half-GCD support the univariate computations. CRT and
-//! rational reconstruction lift modular images to integers; exact division
-//! certifies the result. [`GcdAlgorithm`] selects the preferred backend.
+//! [`gcd()`] automatically tries Huang–Gao, Huang–Monagan, then Zippel.
+//! [`gcd_with_algorithm`] chooses the first algorithm in a documented fallback
+//! chain. [`cofactors`] and [`lcm`] provide the same choice through their
+//! `_with_algorithm` variants.
 //!
-//! The recovery backends use bounded retries and exact verification, rather than
-//! the papers' Monte Carlo verification, and do not claim their full asymptotic
-//! bit-complexity bounds. See [`GcdAlgorithm::HuangMonagan`] for substitution limits.
+//! Call an algorithm directly to control recovery:
+//!
+//! | Function | Algorithm | Result |
+//! | --- | --- | --- |
+//! | [`zippel()`] | Zippel modular GCD with LINZIP | `Poly` |
+//! | [`huang_gao()`] | Huang–Gao separated Hensel lifting; asymptotic SOTA (2026) | `Option<Poly>` |
+//! | [`huang_monagan()`] | Huang–Monagan prime substitution | `Option<Poly>` |
+//! | [`hu_monagan()`] | Hu–Monagan GCD/cofactor interpolation | `Option<Poly>` |
+//! | [`hu_monagan_bivariate()`] | Hu–Monagan with bivariate images | `Option<Poly>` |
+//!
+//! Named sparse methods return `None` when bounded recovery fails; they never
+//! switch to another recovery backend. They share integer normalization, CRT,
+//! exact certification and, for Hu–Monagan, Zippel content extraction.
+//! Every successful result has the normalization and zero conventions of [`gcd()`].
+//!
+//! Huang–Gao's [2026 paper](https://arxiv.org/abs/2609.08074v1) is the
+//! state of the art in asymptotic sparse integer GCD complexity. This bounded,
+//! exactly certified implementation does not claim the paper's full complexity
+//! bound or the fastest practical runtime for every input.
+//!
+//! ```
+//! use polycore::{Order, Ring};
+//! use zippel_gcd::{gcd, huang_gao, huang_monagan, hu_monagan,
+//!                  hu_monagan_bivariate, zippel};
+//!
+//! let ring = Ring::new(["x", "y"], Order::Lex);
+//! let a = ring.parse("(x + y)*(x + 1)").unwrap();
+//! let b = ring.parse("(x + y)*(y + 2)").unwrap();
+//! let expected = ring.parse("x + y").unwrap();
+//! assert_eq!(gcd(&a, &b), expected);       // Automatic recovery and fallback.
+//! assert_eq!(zippel(&a, &b), expected);    // Explicit Zippel.
+//! for algorithm in [huang_gao, huang_monagan, hu_monagan, hu_monagan_bivariate] {
+//!     assert_eq!(algorithm(&a, &b).unwrap(), expected);
+//! }
+//! ```
 #![allow(
     clippy::multiple_crate_versions,
     clippy::redundant_pub_crate,
@@ -43,11 +72,16 @@ use polycore::Monomial;
 
 pub use frac::Frac;
 
-/// Preferred sparse GCD algorithm. Recovery backends use exact certification
-/// and fall back to Zippel if their recovery budgets are exhausted.
+/// Preferred algorithm for [`gcd_with_algorithm`], [`cofactors_with_algorithm`]
+/// and [`lcm_with_algorithm`], including each variant's documented fallback.
+///
+/// To run a single recovery backend without fallback, use its named function:
+/// [`zippel()`], [`huang_gao()`], [`huang_monagan()`], [`hu_monagan()`] or
+/// [`hu_monagan_bivariate()`].
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum GcdAlgorithm {
-    /// Derivative-aided separated Hensel lifting, then Huang–Monagan, then Zippel.
+    /// Huang–Gao separated Hensel lifting (asymptotic SOTA, 2026), then
+    /// Huang–Monagan, then Zippel. See [`huang_gao()`] for the paper and scope.
     #[default]
     HuangGao,
     /// Integer prime substitution and valuation decoding, then Zippel.
@@ -116,38 +150,90 @@ fn gcd_int(f: &Poly, g: &Poly, algorithm: GcdAlgorithm) -> IntPoly {
     gcd::gcd_z(&integral(f).0, &integral(g).0, algorithm)
 }
 
-/// The greatest common divisor, as a primitive integer polynomial with positive leading
-/// coefficient. `gcd(0, 0) = 0`.
+/// Automatic GCD: Huang–Gao, then Huang–Monagan, then Zippel.
+///
+/// Returns a primitive integer polynomial with positive leading coefficient
+/// in the input monomial order. `gcd(0, 0) = 0`. Use the named algorithm
+/// functions to run a specific recovery backend without fallback.
 #[must_use]
 pub fn gcd(f: &Poly, g: &Poly) -> Poly {
     gcd_with_algorithm(f, g, GcdAlgorithm::default())
 }
 
-/// Hu–Monagan GCD using univariate images and simultaneous cofactor recovery.
-///
-/// Has the normalization and zero conventions of [`gcd`], with a certified
-/// Zippel fallback when sparse recovery exceeds its budgets.
-#[must_use]
-pub fn hu_monagan(f: &Poly, g: &Poly) -> Poly {
-    gcd_with_algorithm(f, g, GcdAlgorithm::HuMonagan)
+fn recover(f: &Poly, g: &Poly, algorithm: GcdAlgorithm) -> Option<Poly> {
+    assert_eq!(f.nvars, g.nvars, "polynomials must share a ring");
+    gcd::try_gcd_z(&integral(f).0, &integral(g).0, algorithm).map(|h| normalized(&h, f))
 }
 
-/// Hu–Monagan GCD retaining two symbolic variables in each image.
+/// Zippel GCD by recursive modular interpolation with LINZIP support reuse.
 ///
-/// Uses univariate images for a one-variable ring. See [`hu_monagan()`]
-/// for normalization and fallback behavior.
+/// Uses only the Zippel recovery backend, with retries until exact reconstruction
+/// succeeds. Has the normalization and zero conventions of [`gcd()`].
 #[must_use]
-pub fn hu_monagan_bivariate(f: &Poly, g: &Poly) -> Poly {
-    gcd_with_algorithm(f, g, GcdAlgorithm::HuMonaganBivariate)
+pub fn zippel(f: &Poly, g: &Poly) -> Poly {
+    recover(f, g, GcdAlgorithm::Zippel).expect("Zippel retries until reconstruction succeeds")
 }
 
-/// `(h, f / h, g / h)` where `h = gcd(f, g)`.
+/// Huang–Gao GCD by derivative-aided separated Hensel lifting (asymptotic SOTA, 2026).
+///
+/// Runs Huang–Gao recovery only; returns `None` if bounded recovery fails.
+/// Every `Some` result is exactly certified and normalized like [`gcd()`].
+/// Use [`gcd()`] for automatic fallback.
+///
+/// The [2026 paper](https://arxiv.org/abs/2609.08074v1) gives expected integer
+/// bit complexity `O~(n T D log(Hi) log(Ho))`, linear in each fundamental parameter.
+/// The SOTA designation concerns that asymptotic result; this bounded implementation
+/// does not claim the full bound or the best practical runtime on every input.
+#[must_use]
+pub fn huang_gao(f: &Poly, g: &Poly) -> Option<Poly> {
+    recover(f, g, GcdAlgorithm::HuangGao)
+}
+
+/// Huang–Monagan GCD by integer prime substitution and valuation decoding.
+///
+/// Runs Huang–Monagan recovery only; returns `None` if bounded recovery fails.
+/// Every `Some` result is exactly certified and normalized like [`gcd()`].
+/// See [`GcdAlgorithm::HuangMonagan`] for the paper and recovery budgets.
+#[must_use]
+pub fn huang_monagan(f: &Poly, g: &Poly) -> Option<Poly> {
+    recover(f, g, GcdAlgorithm::HuangMonagan)
+}
+
+/// Hu–Monagan GCD/cofactor interpolation using univariate images.
+///
+/// Runs Hu–Monagan recovery only; returns `None` if bounded recovery fails.
+/// Shared preprocessing uses Zippel to extract polynomial contents. Every `Some`
+/// result is exactly certified and normalized like [`gcd()`]. See
+/// [`GcdAlgorithm::HuMonagan`] for recovery budgets.
+#[must_use]
+pub fn hu_monagan(f: &Poly, g: &Poly) -> Option<Poly> {
+    recover(f, g, GcdAlgorithm::HuMonagan)
+}
+
+/// Hu–Monagan GCD/cofactor interpolation using bivariate images.
+///
+/// Retains two symbolic variables, or one for a univariate ring. Has the same
+/// normalization, content preprocessing and `None` behavior as [`hu_monagan()`],
+/// without switching recovery backends.
+#[must_use]
+pub fn hu_monagan_bivariate(f: &Poly, g: &Poly) -> Option<Poly> {
+    recover(f, g, GcdAlgorithm::HuMonaganBivariate)
+}
+
+/// GCD and cofactors `(h, f / h, g / h)` using the automatic Huang–Gao-first chain.
+///
+/// `h = gcd(f, g)`. Both cofactors are zero when both inputs are zero.
 #[must_use]
 pub fn cofactors(f: &Poly, g: &Poly) -> (Poly, Poly, Poly) {
     cofactors_with_algorithm(f, g, GcdAlgorithm::default())
 }
 
-/// Like [`gcd`], using the selected algorithm and its certified fallback.
+/// GCD using a chosen first algorithm and its documented fallback chain.
+///
+/// [`GcdAlgorithm::HuangGao`] tries Huang–Gao, Huang–Monagan, then Zippel.
+/// Other sparse variants try the selected method, then Zippel; the Zippel
+/// variant uses only Zippel. Named functions such as [`huang_gao()`] give
+/// direct access without fallback. Normalizes the result like [`gcd()`].
 ///
 /// ```
 /// use polycore::{Order, Ring};
@@ -163,7 +249,9 @@ pub fn gcd_with_algorithm(f: &Poly, g: &Poly, algorithm: GcdAlgorithm) -> Poly {
     normalized(&gcd_int(f, g, algorithm), f)
 }
 
-/// Like [`cofactors`], using the selected algorithm and its certified fallback.
+/// GCD and cofactors using a chosen first algorithm and its documented fallback chain.
+///
+/// See [`gcd_with_algorithm`] for the exact chain and [`cofactors`] for the result.
 #[must_use]
 pub fn cofactors_with_algorithm(f: &Poly, g: &Poly, algorithm: GcdAlgorithm) -> (Poly, Poly, Poly) {
     let h = gcd_int(f, g, algorithm);
@@ -180,13 +268,17 @@ pub fn cofactors_with_algorithm(f: &Poly, g: &Poly, algorithm: GcdAlgorithm) -> 
     (h, rational(&qf, &df, f), rational(&qg, &dg, g))
 }
 
-/// The least common multiple, normalized like [`gcd`]. `lcm(f, 0) = 0`.
+/// LCM using the automatic Huang–Gao-first GCD chain.
+///
+/// Normalized like [`gcd()`]. `lcm(f, 0) = 0`.
 #[must_use]
 pub fn lcm(f: &Poly, g: &Poly) -> Poly {
     lcm_with_algorithm(f, g, GcdAlgorithm::default())
 }
 
-/// Like [`lcm`], using the selected algorithm and its certified fallback.
+/// LCM using a chosen first algorithm and its documented fallback chain.
+///
+/// See [`gcd_with_algorithm`] for the exact chain. Normalizes the result like [`gcd()`].
 #[must_use]
 pub fn lcm_with_algorithm(f: &Poly, g: &Poly, algorithm: GcdAlgorithm) -> Poly {
     let h = gcd_int(f, g, algorithm);

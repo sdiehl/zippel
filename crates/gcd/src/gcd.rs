@@ -1,4 +1,4 @@
-//! GCD over Z: Huang–Gao or Huang–Monagan recovery with a Zippel fallback.
+//! GCD over Z: explicit recovery backends and an automatic fallback chain.
 
 use crate::fast::Arithmetic;
 use crate::linzip::linzip;
@@ -15,13 +15,28 @@ use std::iter::once;
 
 /// `gcd(f, g)` up to sign.
 pub(crate) fn gcd_z(f: &IntPoly, g: &IntPoly, algorithm: GcdAlgorithm) -> IntPoly {
+    try_gcd_z(f, g, algorithm)
+        .or_else(|| {
+            (algorithm == GcdAlgorithm::HuangGao)
+                .then(|| try_gcd_z(f, g, GcdAlgorithm::HuangMonagan))
+                .flatten()
+        })
+        .unwrap_or_else(|| {
+            try_gcd_z(f, g, GcdAlgorithm::Zippel)
+                .expect("Zippel retries until reconstruction succeeds")
+        })
+}
+
+/// Run only the requested recovery backend, retaining shared normalization
+/// and content extraction. None means recovery declined, not that the GCD is 1.
+pub(crate) fn try_gcd_z(f: &IntPoly, g: &IntPoly, algorithm: GcdAlgorithm) -> Option<IntPoly> {
     if f.is_zero() || g.is_zero() {
         let h = if f.is_zero() { g } else { f };
-        return if h.is_zero() {
+        return Some(if h.is_zero() {
             h.clone()
         } else {
             h.primitive()
-        };
+        });
     }
     let c = gcd(&f.content(), &g.content());
     let (mf, mg) = (f.min_exps(), g.min_exps());
@@ -30,30 +45,23 @@ pub(crate) fn gcd_z(f: &IntPoly, g: &IntPoly, algorithm: GcdAlgorithm) -> IntPol
         h.primitive()
             .map(|e, x| (e.iter().zip(s).map(|(a, b)| a - b).collect(), x.clone()))
     };
-    let h = gcd_shifted(&shift(f, &mf), &shift(g, &mg), algorithm);
-    h.map(|e, x| (add_exps(e, &m), x * &c))
+    let h = gcd_shifted(&shift(f, &mf), &shift(g, &mg), algorithm)?;
+    Some(h.map(|e, x| (add_exps(e, &m), x * &c)))
 }
 
 /// Separated lifting handles all variables and their polynomial contents at once.
-/// Prime substitution supplies another recovery path before the Zippel fallback.
-fn gcd_shifted(f: &IntPoly, g: &IntPoly, algorithm: GcdAlgorithm) -> IntPoly {
+/// A declined attempt returns to the caller without switching recovery methods.
+fn gcd_shifted(f: &IntPoly, g: &IntPoly, algorithm: GcdAlgorithm) -> Option<IntPoly> {
     let n = f.n;
     let shared = (0..n).filter(|&k| f.degree(k) > 0 && g.degree(k) > 0);
     let Some(x0) = shared.max_by_key(|&k| f.degree(k).min(g.degree(k))) else {
-        return one(n);
+        return Some(one(n));
     };
     if algorithm == GcdAlgorithm::HuangGao {
-        if let Some(h) = modular(f, g, Backend::Separated) {
-            return h;
-        }
+        return modular(f, g, Backend::Separated);
     }
-    if matches!(
-        algorithm,
-        GcdAlgorithm::HuangGao | GcdAlgorithm::HuangMonagan
-    ) {
-        if let Some(h) = crate::huang_monagan::gcd(f, g) {
-            return h;
-        }
+    if algorithm == GcdAlgorithm::HuangMonagan {
+        return crate::huang_monagan::gcd(f, g);
     }
     let perm: Vec<usize> = once(x0).chain((0..n).filter(|&k| k != x0)).collect();
     let mut back = vec![0; n];
@@ -63,24 +71,22 @@ fn gcd_shifted(f: &IntPoly, g: &IntPoly, algorithm: GcdAlgorithm) -> IntPoly {
     let cont = gcd_z(&cf, &cg, GcdAlgorithm::Zippel);
     let pf = f.div_exact(&cf).expect("content divides");
     let pg = g.div_exact(&cg).expect("content divides");
-    let sparse = match algorithm {
+    let keep = match algorithm {
         GcdAlgorithm::HuMonagan => Some(1),
         GcdAlgorithm::HuMonaganBivariate => Some(n.min(2)),
         _ => None,
-    }
-    .and_then(|keep| {
+    };
+    let h = if let Some(keep) = keep {
         let (a, b) = if pf.terms.len() <= pg.terms.len() {
             (&pf, &pg)
         } else {
             (&pg, &pf)
         };
-        modular(a, b, Backend::HuMonagan(keep))
-    });
-    sparse
-        .or_else(|| modular(&pf, &pg, Backend::Zippel))
-        .expect("Zippel retries until reconstruction succeeds")
-        .mul(&cont)
-        .permute(&back)
+        modular(a, b, Backend::HuMonagan(keep))?
+    } else {
+        modular(&pf, &pg, Backend::Zippel)?
+    };
+    Some(h.mul(&cont).permute(&back))
 }
 
 fn content_x0(f: &IntPoly) -> IntPoly {
