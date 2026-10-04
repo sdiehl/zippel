@@ -21,7 +21,8 @@ use num_bigint::BigInt;
 use num_integer::Integer;
 use num_rational::BigRational;
 use num_traits::{One, Zero};
-use polycore::modp::{add, mul, pow, sub, Primes};
+use polycore::evaluation::power_table;
+use polycore::modp::{add, mul, sub, Primes};
 use polycore::sample::point;
 use polycore::{crt, dense, Fp, Modular};
 use polycore::{Monomial, Order};
@@ -135,11 +136,19 @@ fn fit(
     let xs = xs.par_iter();
     #[cfg(not(feature = "parallel"))]
     let xs = xs.iter();
-    let samples: Vec<(&Vec<u64>, Vec<u64>)> = xs.filter_map(|x| Some((x, f(x, p)?))).collect();
-    let monomial = |e: &Exps, x: &[u64]| {
+    let mut degrees = vec![0; n];
+    for e in shape.iter().flat_map(|(a, b)| a.iter().chain(b)) {
+        for (d, &x) in degrees.iter_mut().zip(e) {
+            *d = (*d).max(x as usize);
+        }
+    }
+    let samples: Vec<(Vec<Vec<u64>>, Vec<u64>)> = xs
+        .filter_map(|x| Some((power_table(x, &degrees, p), f(x, p)?)))
+        .collect();
+    let monomial = |e: &Exps, x: &[Vec<u64>]| {
         e.iter()
             .zip(x)
-            .fold(1, |v, (&d, &xi)| mul(v, pow(xi, u64::from(d), p), p))
+            .fold(1, |v, (&d, xi)| mul(v, xi[d as usize], p))
     };
     let mut values = Vec::new();
     for (i, (num, den)) in shape.iter().enumerate() {

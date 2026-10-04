@@ -11,6 +11,7 @@ use std::fmt::Write;
 
 use num_rational::Rational64;
 use num_traits::{One, Zero};
+use polycore::dense::invert;
 use polycore::modp::{add, mul, Primes};
 use polycore::sample::point;
 use polycore::{Order, Ring};
@@ -98,7 +99,7 @@ impl Family {
             }
             c.push(cm);
         }
-        let b = invert(a);
+        let b = invert(&a).expect("the propagators must be independent");
         let sp: Vec<Expr> = b
             .iter()
             .map(|row| {
@@ -366,33 +367,6 @@ fn axpy(a: &mut [Rational64], b: &[Rational64], k: Rational64) {
     for (x, y) in a.iter_mut().zip(b) {
         *x += *y * k;
     }
-}
-
-fn invert(mut a: Vec<Vec<Rational64>>) -> Vec<Vec<Rational64>> {
-    let n = a.len();
-    let mut b: Vec<Vec<Rational64>> = (0..n)
-        .map(|i| {
-            (0..n)
-                .map(|j| Rational64::from(i64::from(i == j)))
-                .collect()
-        })
-        .collect();
-    for c in 0..n {
-        let r = (c..n)
-            .find(|&r| !a[r][c].is_zero())
-            .expect("the propagators must be independent");
-        a.swap(c, r);
-        b.swap(c, r);
-        let l = a[c][c].recip();
-        a[c].iter_mut().chain(&mut b[c]).for_each(|x| *x *= l);
-        for r in (0..n).filter(|&r| r != c) {
-            let k = a[r][c];
-            let (ac, bc) = (a[c].clone(), b[c].clone());
-            axpy(&mut a[r], &ac, -k);
-            axpy(&mut b[r], &bc, -k);
-        }
-    }
-    b
 }
 
 impl System {

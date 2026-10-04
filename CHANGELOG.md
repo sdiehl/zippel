@@ -6,6 +6,10 @@
 - Move geometric sparse recovery into `zippel-interp`.
 - Expose each GCD algorithm through a named function.
 - Return `Option` from named sparse GCD methods without automatic fallback.
+- Accumulate modular GCD images in `polycore::crt::CrtAccumulator`.
+- Evaluate skeleton and fitting monomials from `polycore` power tables.
+- Take the Laporta propagator inverse from `polycore::dense::invert`.
+- Find Ben-Or/Tiwari primes with `polycore::modp::is_prime`.
 
 ## 0.3.0 (2026-10-01)
 

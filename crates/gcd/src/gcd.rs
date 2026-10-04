@@ -6,10 +6,10 @@ use crate::poly::{add_exps, gcd, one, Exps, IntPoly, ModPoly};
 use crate::GcdAlgorithm;
 use num_bigint::BigInt;
 use num_integer::Integer;
-use num_traits::{One, Zero};
-use polycore::crt::WangContext;
+use num_traits::One;
+use polycore::crt::{residue, symmetric, CrtAccumulator, WangContext};
 use polycore::fast::PrimeField;
-use polycore::modp::{inv, mul, sub, Primes};
+use polycore::modp::Primes;
 use polycore::sample::Rng;
 use std::iter::once;
 
@@ -104,10 +104,6 @@ fn content_x0(f: &IntPoly) -> IntPoly {
         .unwrap_or_else(|()| one(f.n))
 }
 
-fn residue(a: &BigInt, p: u64) -> u64 {
-    u64::try_from(a.mod_floor(&BigInt::from(p))).expect("reduced")
-}
-
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Backend {
     Separated,
@@ -131,9 +127,7 @@ fn modular(f: &IntPoly, g: &IntPoly, backend: Backend) -> Option<IntPoly> {
     let mut rng = Rng::new(0x5eed);
     let gamma = gcd(f.lc(), g.lc());
     let mut skeleton: Option<Vec<Exps>> = None;
-    let mut acc: Vec<BigInt> = Vec::new();
-    let mut modulus = BigInt::one();
-    let mut images = 0usize;
+    let mut acc = CrtAccumulator::new(0);
     let mut tried: Option<IntPoly> = None;
     let primes: Box<dyn Iterator<Item = u64>> = if let Backend::HuMonagan(keep) = backend {
         Box::new(zippel_interp::geometric::Encoding::new(&f.degrees()[keep..])?.primes())
@@ -195,27 +189,30 @@ fn modular(f: &IntPoly, g: &IntPoly, backend: Backend) -> Option<IntPoly> {
             None => continue,
             Some(true) => {
                 skeleton = Some(h.support());
-                acc = vec![BigInt::zero(); h.terms.len()];
-                modulus = BigInt::one();
-                images = 0;
+                acc = CrtAccumulator::new(h.terms.len());
             }
             Some(false) => {}
         }
         let s = skeleton.as_ref().expect("set above");
-        let m_inv = inv(residue(&modulus, p), p);
-        for (e, a) in s.iter().zip(&mut acc) {
-            let r = h
-                .terms
-                .binary_search_by(|t| e.cmp(&t.0))
-                .map_or(0, |i| h.terms[i].1);
-            let t = mul(sub(r, residue(a, p), p), m_inv, p);
-            *a += &modulus * t;
+        let values: Vec<u64> = s
+            .iter()
+            .map(|e| {
+                h.terms
+                    .binary_search_by(|t| e.cmp(&t.0))
+                    .map_or(0, |i| h.terms[i].1)
+            })
+            .collect();
+        if acc.add(p, &values).is_err() {
+            continue;
         }
-        modulus *= p;
-        images += 1;
-        let Some(h) = candidate(n, s, &acc, &modulus, images.is_power_of_two())
-            .filter(|h| tried.as_ref() != Some(h))
-        else {
+        let Some(h) = candidate(
+            n,
+            s,
+            acc.residues(),
+            acc.modulus(),
+            acc.image_count().is_power_of_two(),
+        )
+        .filter(|h| tried.as_ref() != Some(h)) else {
             continue;
         };
         if f.div_exact(&h).is_some() && g.div_exact(&h).is_some() {
@@ -234,11 +231,7 @@ const SLACK: u64 = 16;
 /// much larger than `lc(h)`. Fractions cost a reconstruction, so only some rounds try them.
 fn candidate(n: usize, s: &[Exps], acc: &[BigInt], m: &BigInt, fractions: bool) -> Option<IntPoly> {
     let room = m.bits().saturating_sub(SLACK);
-    let half = m >> 1;
-    let lift: Vec<BigInt> = acc
-        .iter()
-        .map(|a| if *a > half { a - m } else { a.clone() })
-        .collect();
+    let lift: Vec<BigInt> = acc.iter().map(|a| symmetric(a, m)).collect();
     let poly = |cs: Vec<BigInt>| Some(IntPoly::new(n, s.iter().cloned().zip(cs)).primitive());
     if lift.iter().all(|a| a.bits() <= room) {
         return poly(lift);

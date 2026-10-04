@@ -8,7 +8,7 @@
 //! Zippel would spend `t` points per degree of every variable.
 
 use polycore::interp::{solve, Massey};
-use polycore::modp::{inv, mul, pow};
+use polycore::modp::{inv, is_prime, mul, pow};
 use polycore::sample::{hash, point, BlackBox};
 use polycore::{Fp, Modular};
 
@@ -101,8 +101,5 @@ fn exponents(mut r: u64, q: &[u64]) -> Option<Exps> {
 }
 
 fn small_primes(n: usize) -> Vec<u64> {
-    (2..)
-        .filter(|&k: &u64| (2..k).take_while(|d| d * d <= k).all(|d| k % d != 0))
-        .take(n)
-        .collect()
+    (2..).filter(|&k| is_prime(k)).take(n).collect()
 }

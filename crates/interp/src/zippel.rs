@@ -8,7 +8,7 @@
 //! Every point is named by `(seed, stage, index)` rather than drawn from a stream, so two
 //! interpolations with one seed ask the same questions for as long as their shapes agree.
 
-use crate::poly::{Exps, ModPoly};
+use crate::poly::{power_table, Exps, ModPoly};
 use polycore::interp::{master, solve, Newton};
 use polycore::modp::{add, mul, pow};
 use polycore::sample::{hash, point, BlackBox};
@@ -89,7 +89,7 @@ fn lift(
     if t == 0 {
         return Some(h.clone());
     }
-    let (r, vals) = distinct_values(&skeleton, k, p, seed)?;
+    let (r, vals) = distinct_values(&skeleton, &h.degrees()[..k], p, seed)?;
     let vals: Vec<Fp> = vals.iter().map(|&v| Fp::new(v, p)).collect();
     let master = master(&vals);
     let mut newton: Vec<Newton<Fp>> = vec![Newton::default(); t];
@@ -145,17 +145,23 @@ fn lift(
 }
 
 /// Random `r` at which the skeleton's monomials take distinct values, so the system is solvable.
-fn distinct_values(skeleton: &[Exps], k: usize, p: u64, seed: u64) -> Option<(Vec<u64>, Vec<u64>)> {
+fn distinct_values(
+    skeleton: &[Exps],
+    degrees: &[usize],
+    p: u64,
+    seed: u64,
+) -> Option<(Vec<u64>, Vec<u64>)> {
+    let k = degrees.len() as u64;
     (0..3).find_map(|a| {
-        let r: Vec<u64> = (0..k as u64)
-            .map(|i| point(&[seed, 3, k as u64, a, i], p))
-            .collect();
+        let r: Vec<u64> = (0..k).map(|i| point(&[seed, 3, k, a, i], p)).collect();
+        let table = power_table(&r, degrees, p);
         let vals: Vec<u64> = skeleton
             .iter()
             .map(|e| {
-                r.iter()
+                table
+                    .iter()
                     .zip(e)
-                    .fold(1, |acc, (&ri, &d)| mul(acc, pow(ri, u64::from(d), p), p))
+                    .fold(1, |acc, (ri, &d)| mul(acc, ri[d as usize], p))
             })
             .collect();
         let mut sorted = vals.clone();
