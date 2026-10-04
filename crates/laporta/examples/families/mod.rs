@@ -9,7 +9,7 @@ use zippel_laporta::ibp::Family;
 pub fn bubble() -> Family {
     let m2 = vec![0, 0, 0, 1];
     Family {
-        vars: vec!["d", "s", "m2"],
+        vars: ["d", "s", "m2"].map(String::from).to_vec(),
         loops: 1,
         props: vec![(vec![1, 0], m2.clone()), (vec![1, 1], m2)],
         lines: 2,
@@ -37,7 +37,7 @@ fn massless_legs() -> Vec<Vec<Vec<i64>>> {
 pub fn one_loop_box() -> Family {
     let props = [[1, 0, 0, 0], [1, 1, 0, 0], [1, 1, 1, 0], [1, 1, 1, 1]];
     Family {
-        vars: vec!["d", "s", "t"],
+        vars: ["d", "s", "t"].map(String::from).to_vec(),
         loops: 1,
         props: props.iter().map(|q| (q.to_vec(), vec![])).collect(),
         lines: 4,
@@ -61,7 +61,7 @@ pub fn double_box() -> Family {
         [0, 1, 1, 0, 0],
     ];
     Family {
-        vars: vec!["d", "s", "t"],
+        vars: ["d", "s", "t"].map(String::from).to_vec(),
         loops: 2,
         props: props.iter().map(|q| (q.to_vec(), vec![])).collect(),
         lines: 7,

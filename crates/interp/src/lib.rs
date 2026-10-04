@@ -9,6 +9,7 @@
 )]
 
 pub mod benor;
+pub mod factors;
 pub mod geometric;
 pub mod poly;
 pub mod rational;

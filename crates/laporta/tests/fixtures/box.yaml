@@ -1,0 +1,9 @@
+integralfamilies:
+  - name: box
+    loop_momenta: [k]
+    top_level_sectors: [15]
+    propagators:
+      - [k, 0]
+      - [k+p1, 0]
+      - [k+p1+p2, 0]
+      - [k-p4, 0]

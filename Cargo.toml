@@ -19,7 +19,7 @@ num-bigint = "0.4"
 num-integer = "0.1"
 num-rational = "0.4"
 num-traits = "0.2"
-polycore = "0.1.5"
+polycore = { path = "../poly-core/crates/polycore", version = "0.1.5" }
 rayon = "1.10"
 zippel-interp = { path = "crates/interp", version = "0.3.0", default-features = false }
 zippel-lift = { path = "crates/lift", version = "0.3.0", default-features = false }
@@ -35,3 +35,7 @@ all = { level = "warn", priority = -1 }
 pedantic = { level = "warn", priority = -1 }
 nursery = { level = "warn", priority = -1 }
 cargo = { level = "warn", priority = -1 }
+
+[patch.crates-io]
+polycore = { path = "../poly-core/crates/polycore" }
+groebner = { path = "../groebner" }

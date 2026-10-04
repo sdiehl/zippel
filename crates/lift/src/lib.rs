@@ -15,7 +15,7 @@
 )]
 
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use num_bigint::BigInt;
 use num_integer::Integer;
@@ -51,14 +51,23 @@ pub fn lift(
     n: usize,
     seed: u64,
 ) -> Option<Vec<Fraction>> {
+    lift_impl(&f, n, seed, &[])
+}
+
+fn lift_impl(
+    f: &(impl Fn(&[u64], u64) -> Option<Vec<u64>> + Sync),
+    n: usize,
+    seed: u64,
+    polynomial: &[bool],
+) -> Option<Vec<Fraction>> {
     let mut acc: Option<Residues> = None;
     let mut candidate: Option<Vec<BigRational>> = None;
     for p in Primes::new().take(MAX_PRIMES) {
         let fitted = acc.as_ref().and_then(|a| {
-            let values = fit(&f, &a.shape, n, p, seed)?;
+            let values = fit(f, &a.shape, n, p, seed)?;
             Some((a.shape.clone(), values))
         });
-        let Some((shape, values)) = fitted.or_else(|| image(&f, n, p, seed)) else {
+        let Some((shape, values)) = fitted.or_else(|| image(f, n, p, seed, polynomial)) else {
             continue;
         };
         if let (Some(a), Some(q)) = (&acc, &candidate) {
@@ -86,6 +95,7 @@ fn image(
     n: usize,
     p: u64,
     seed: u64,
+    polynomial: &[bool],
 ) -> Option<(Shape, Vec<u64>)> {
     let memo = Mutex::new(HashMap::new());
     let sample = |x: &[u64]| -> Option<Vec<u64>> {
@@ -106,7 +116,24 @@ fn image(
         })?
         .len();
     let images: Vec<RatFunc> = (0..len)
-        .map(|i| reconstruct(&|x: &[u64], _| sample(x)?.get(i).copied(), n, p, seed))
+        .map(|i| {
+            let component = |x: &[u64], _| sample(x)?.get(i).copied();
+            let poly = polynomial
+                .get(i)
+                .copied()
+                .unwrap_or(false)
+                .then(|| {
+                    zippel_interp::interpolate(&component, n, p, seed).map(|num| RatFunc {
+                        num,
+                        den: zippel_interp::ModPoly {
+                            n,
+                            terms: vec![(vec![0; n], 1)],
+                        },
+                    })
+                })
+                .flatten();
+            poly.or_else(|| reconstruct(&component, n, p, seed))
+        })
         .collect::<Option<_>>()?;
     let shape = images
         .iter()
@@ -247,4 +274,148 @@ fn integral(num: &Poly, den: &Poly) -> Fraction {
         num: num.scale(&k),
         den: den.scale(&k),
     }
+}
+
+/// Lift with denominator candidates over Q, shared by all output components.
+///
+/// Three slices select multiplicities independently per component. Subsequent
+/// primes fit the residual fraction, keeping known factors out of the linear solve.
+/// Invalid candidates or unsuccessful learning fall back to ordinary lifting.
+pub fn lift_with_factors(
+    f: impl Fn(&[u64], u64) -> Option<Vec<u64>> + Sync,
+    n: usize,
+    candidates: &[Poly],
+    seed: u64,
+) -> Option<Vec<Fraction>> {
+    lift_factored(&f, n, candidates, seed).or_else(|| lift(&f, n, seed))
+}
+
+fn lift_factored(
+    f: &(impl Fn(&[u64], u64) -> Option<Vec<u64>> + Sync),
+    n: usize,
+    candidates: &[Poly],
+    seed: u64,
+) -> Option<Vec<Fraction>> {
+    use zippel_interp::{factors::guess, ModPoly};
+    if candidates.iter().any(|g| g.nvars != n || g.is_constant()) {
+        return None;
+    }
+    let p = Primes::new().next()?;
+    let modular: Vec<_> = candidates
+        .iter()
+        .map(|g| {
+            let g = g.try_map(|c| Some(Fp::new(crt::reduce(c, p)?, p)))?;
+            Some(ModPoly::from_poly(&g, p))
+        })
+        .collect::<Option<_>>()?;
+    // Slice probes are shared by all coefficients, just as in ordinary lifting.
+    let memo = Mutex::new(HashMap::new());
+    let sample = |x: &[u64]| {
+        if let Some(y) = memo.lock().unwrap().get(x) {
+            return Option::clone(y);
+        }
+        let y = f(x, p);
+        memo.lock().unwrap().insert(x.to_vec(), y.clone());
+        y
+    };
+    let len = (0..16)
+        .find_map(|i| {
+            sample(
+                &(0..n as u64)
+                    .map(|j| point(&[seed, 90, i, j], p))
+                    .collect::<Vec<_>>(),
+            )
+        })?
+        .len();
+    let guesses: Vec<_> = (0..len)
+        .map(|i| {
+            guess(
+                &|x: &[u64], _| sample(x)?.get(i).copied(),
+                &modular,
+                n,
+                p,
+                seed,
+            )
+        })
+        .collect::<Option<_>>()?;
+    let known: Vec<_> = guesses
+        .iter()
+        .map(|g| {
+            candidates.iter().zip(&g.powers).fold(
+                Poly::constant(BigRational::one(), n, Order::Lex),
+                |acc, (f, &m)| &acc * &f.pow(m),
+            )
+        })
+        .collect();
+    let polynomial: Vec<_> = guesses.iter().map(|g| g.complete).collect();
+    // Convert the candidate pool once per prime; evaluate the factored product
+    // without expanding it or repeatedly reducing rational coefficients.
+    let pools = Mutex::new(HashMap::new());
+    let scaled = |x: &[u64], prime| {
+        let pool = {
+            let mut cache = pools.lock().unwrap();
+            cache
+                .entry(prime)
+                .or_insert_with(|| {
+                    candidates
+                        .iter()
+                        .map(|g| {
+                            let g = g.try_map(|c| Some(Fp::new(crt::reduce(c, prime)?, prime)))?;
+                            Some(ModPoly::from_poly(&g, prime))
+                        })
+                        .collect::<Option<Vec<_>>>()
+                        .map(Arc::new)
+                })
+                .clone()?
+        };
+        let factors: Vec<_> = pool.iter().map(|g| g.eval(x, prime)).collect();
+        let y = if prime == p { sample(x)? } else { f(x, prime)? };
+        if y.len() != len {
+            return None;
+        }
+        y.iter()
+            .zip(&guesses)
+            .map(|(&v, g)| {
+                let d = factors.iter().zip(&g.powers).fold(1, |acc, (&c, &m)| {
+                    mul(acc, polycore::modp::pow(c, u64::from(m), prime), prime)
+                });
+                (d != 0).then(|| mul(v, d, prime))
+            })
+            .collect::<Option<Vec<_>>>()
+    };
+    let residual = lift_impl(&scaled, n, seed, &polynomial)?;
+    Some(restore_factors(residual, &known, candidates, n))
+}
+
+fn restore_factors(
+    residual: Vec<Fraction>,
+    known: &[Poly],
+    candidates: &[Poly],
+    n: usize,
+) -> Vec<Fraction> {
+    let out: Vec<_> = residual
+        .into_iter()
+        .zip(known)
+        .map(|(r, d)| {
+            let mut num = r.num;
+            let mut den = &r.den * d;
+            for g in candidates {
+                while !num.is_zero() {
+                    let Some(a) = num.exact(g) else { break };
+                    let Some(b) = den.exact(g) else { break };
+                    num = a;
+                    den = b;
+                }
+            }
+            if num.is_zero() {
+                den = Poly::constant(BigRational::one(), n, Order::Lex);
+            }
+            if den.lc().is_some_and(|c| c < &BigRational::zero()) {
+                num = num.scale(&-BigRational::one());
+                den = den.scale(&-BigRational::one());
+            }
+            integral(&num, &den)
+        })
+        .collect();
+    out
 }

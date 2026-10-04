@@ -157,7 +157,11 @@ impl<F: BlackBox + Sync> Shifted<'_, F> {
 
 /// The rational function behind `g` by Thiele interpolation, from points named by `seed`. `g`
 /// may refuse points.
-fn thiele(mut g: impl FnMut(u64) -> Option<u64>, p: u64, seed: u64) -> Option<(Dense, Dense)> {
+pub(crate) fn thiele(
+    mut g: impl FnMut(u64) -> Option<u64>,
+    p: u64,
+    seed: u64,
+) -> Option<(Dense, Dense)> {
     let mut th = Thiele::default();
     for i in 0..MAX_POINTS {
         let t = point(&[seed, i], p);

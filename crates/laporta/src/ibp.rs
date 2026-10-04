@@ -29,7 +29,7 @@ type Form = Vec<Rational64>;
 #[derive(Clone, Debug)]
 pub struct Family {
     /// Variable names, `d` first.
-    pub vars: Vec<&'static str>,
+    pub vars: Vec<String>,
     pub loops: usize,
     /// Each `D_m` as its momentum on the loop then external momenta, and its squared mass. Only
     /// the first `lines` may be propagators; the rest are irreducible numerators.
@@ -51,7 +51,7 @@ struct Expr {
 #[derive(Debug)]
 pub struct System {
     pub integrals: Vec<Index>,
-    pub vars: Vec<&'static str>,
+    pub vars: Vec<String>,
     seeds: BTreeSet<Index>,
     columns: BTreeMap<Index, usize>,
     eqs: Vec<Vec<(usize, Lin)>>,
@@ -163,7 +163,7 @@ impl Family {
         let k = 1 + self
             .vars
             .iter()
-            .position(|&v| v == name)
+            .position(|v| v == name)
             .expect("a variable");
         assert!(k > 1, "d stays symbolic");
         let sub = |l: &mut Lin| {
@@ -412,6 +412,21 @@ impl System {
         lift(
             |x: &[u64], p| plan.replay(|e| self.row(e, x, p), p),
             self.vars.len(),
+            seed,
+        )
+    }
+
+    /// Lift with a shared pool of possible denominator factors in `self.vars` order.
+    pub fn lift_with_factors(
+        &self,
+        plan: &Plan,
+        candidates: &[zippel_lift::Poly],
+        seed: u64,
+    ) -> Option<Vec<Fraction>> {
+        zippel_lift::lift_with_factors(
+            |x: &[u64], p| plan.replay(|e| self.row(e, x, p), p),
+            self.vars.len(),
+            candidates,
             seed,
         )
     }

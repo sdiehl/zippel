@@ -5,7 +5,7 @@ use zippel_laporta::ibp::Family;
 
 fn main() {
     let bubble = Family {
-        vars: vec!["d", "s"],
+        vars: ["d", "s"].map(String::from).to_vec(),
         loops: 1,
         props: vec![(vec![1, 0], vec![]), (vec![1, 1], vec![])], // k^2, (k + q)^2
         lines: 2,

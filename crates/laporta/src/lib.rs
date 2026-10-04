@@ -12,6 +12,8 @@
     clippy::many_single_char_names
 )]
 
+pub mod block;
+pub mod formats;
 pub mod ibp;
 
 #[cfg(doctest)]
