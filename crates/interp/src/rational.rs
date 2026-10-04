@@ -1,4 +1,4 @@
-//! Rational functions from a black box, after Klappert and Lange's `FireFly` (2019).
+//! Rational functions from a black box, after Klappert and Lange (2019).
 //!
 //! Along the ray `x = t*z + s`, with `z_0 = 1` and a fixed random shift `s`, the black box is a
 //! univariate rational function of `t`. Thiele recovers it, scaled so the denominator is 1 at

@@ -31,3 +31,33 @@ fn factors_survive_lifting_and_reduce_total_probes() {
     eprintln!("all-prime probes: {before} -> {after}");
     assert!(after < before, "{before} -> {after}");
 }
+
+#[test]
+fn discovers_dimension_factors_without_a_supplied_pool() {
+    let ring = Ring::new(["d", "s"], Order::Lex);
+    let num: Poly = ring.parse("d+s+1").unwrap();
+    let den: Poly = ring.parse("(2*d-7)^2*(s^2+1)").unwrap();
+    let f = |x: &[u64], p| {
+        let x = x.iter().map(|&v| Fp::new(v, p)).collect::<Vec<_>>();
+        let eval = |g: &Poly| {
+            g.map(|c| Fp::new(crt::reduce(c, p).unwrap(), p))
+                .eval(&x)
+                .residue_mod(p)
+        };
+        Some(vec![mul(eval(&num), try_inv(eval(&den), p)?, p)])
+    };
+    assert_eq!(
+        zippel_lift::lift_with_discovered_factors(f, 2, &[], 23),
+        lift(f, 2, 23)
+    );
+}
+
+#[test]
+fn discovery_skips_an_unusable_first_prime() {
+    let first = polycore::modp::Primes::new().next().unwrap();
+    let f = |x: &[u64], p| (p != first).then(|| vec![polycore::modp::add(x[0], 1, p)]);
+    assert_eq!(
+        zippel_lift::lift_with_discovered_factors(f, 1, &[], 29),
+        lift(f, 1, 29)
+    );
+}

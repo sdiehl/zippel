@@ -17,7 +17,7 @@ parallel = ["polycore/parallel"]
 
 [dependencies]
 polycore.workspace = true
-polyfactor = { path = "../../../poly-core/crates/polyfactor", version = "0.1.5" }
+polyfactor.workspace = true
 
 [lints]
 workspace = true

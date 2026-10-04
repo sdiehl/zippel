@@ -10,6 +10,7 @@ IBP systems are eliminated numerically modulo word-sized primes, and the exact r
 - [`zippel-interp::geometric`](crates/interp/src/geometric.rs): Sparse recovery with smooth-subgroup exponent decoding
 - [`zippel-lift`](crates/lift): Lifts to Q by CRT and rational number reconstruction
 - [`zippel-laporta`](crates/laporta): IBP generation and Laporta elimination over GF(p)
+- [`zippel-laporta::block`](crates/laporta/src/block.rs): Adaptive block-triangular reduction over GF(p)
 - [`zippel-gcd`](crates/gcd): Multivariate GCD, cofactors and LCM of [polycore](https://crates.io/crates/polycore) polynomials
 - [`zippel-gcd::zippel`](crates/gcd/src/pgcd.rs): Zippel's modular GCD with LINZIP interpolation
 - [`zippel-gcd::huang_gao`](crates/gcd/src/huang_gao.rs): Huang–Gao GCD by separated Hensel lifting (asymptotic SOTA, 2026)
@@ -67,52 +68,6 @@ I(2,1) = (-d + 3) / (s) * I(1,1)
 I(2,2) = (d^2 - 9*d + 18) / (s^2) * I(1,1)
 ```
 
-## Denominator factors
-
-`zippel_interp::factors::reconstruct_with_factors` accepts a pool of `ModPoly` polynomials in the black box's variable order. Three independent shifted slices estimate their multiplicities. With a complete pool, it interpolates a polynomial; with a partial pool, it reconstructs the remaining rational function. Fresh probes check the result, and unsuccessful guesses fall back to ordinary reconstruction. `factors::univariate_factors` discovers factors depending on a single variable using `polyfactor`; multivariate factors such as Gram determinants are supplied by callers. These are Monte Carlo algorithms, like the existing interpolation API.
-
-`zippel_lift::lift_with_factors` takes candidates over Q, learns multiplicities per output component, and retains the known product through every CRT prime. Later primes fit only the residual numerator and denominator supports. Use `System::lift_with_factors` for IBP replays. The returned fractions retain the usual expanded representation. Ordinary `reconstruct` and `lift` remain available.
-
-Run the probe-count regression tests (counts include discovery and all lifting primes):
-
-```bash
-cargo test -p zippel-interp -p zippel-lift --test factors -- --nocapture
-```
-
-The factor-rich three-variable fixture currently uses 76 probes instead of 1425 for finite-field reconstruction and 82 instead of 1567 for vector lifting. These are synthetic examples, not claims about general IBP workloads.
-
-## Family interchange
-
-`zippel_laporta::formats::read_kira` reads a named family from Kira's two YAML configuration files. It handles momentum conservation, redundant scalar-product rules, a single contiguous top sector, and fixing one invariant to unity. `read_fire` reads literal `Internal`, `External`, `Propagators`, and `Replacements` assignments. It preserves signed propagator conventions when exporting results. `ImportedFamily::rules` writes Mathematica replacement rules; `fire_tables` writes FIRE's reduction list plus integral-ID dictionary, including master identities.
-
-Both importers require complete independent quadratic propagators (including ISPs), integer momentum coefficients, and affine kinematics. Use invariants such as `m2` for squared masses. Unsupported options, cuts, multiple top sectors, arbitrary Mathematica code, and nonquadratic denominators return errors. Symmetries are not inferred. `Family::vars` and `System::vars` now own their names as `Vec<String>`.
-
-A target file contains one comma-separated index vector per line. For example:
-
-```bash
-cargo run --release -p zippel-laporta --example reduce_file -- \
-  kira crates/laporta/tests/fixtures/box.yaml \
-  crates/laporta/tests/fixtures/kinematics.yaml box targets.txt rules.m 2 2 7
-cargo run --release -p zippel-laporta --example reduce_file -- \
-  fire crates/laporta/tests/fixtures/box.m box s,t 4 targets.txt box.tables 2 2 7
-```
-
-The last three arguments are dots, numerator powers, and seed. No external reducer is invoked. The tests include the upstream Kira massive one-loop box definition; Kira/FIRE end-to-end comparisons require separately installed executables.
-
-## Block-triangular relations
-
-`zippel_laporta::block::BlockPlan::learn` consumes a numeric reduction oracle with one fixed master basis and targets ordered by increasing complexity. It searches bounded total-degree polynomial ansätze, derives relations from the finite-field null space, and chooses enough relations to reduce each block to simpler integrals. Learning and validation share cached probes. `Search` bounds degree, block size, unknown count, and distinct oracle calls.
-
-`BlockPlan::fit` refits the learned ansatz and pivot pattern at a new prime, checking it against independent oracle probes. `BlockForm::eval` evaluates only the compact relations; singular blocks return `None`. `block::lift` caches a fitted form per prime and lifts the resulting target coefficients to Q. This is an initial bounded relation learner: Blade's weighted/adaptive ansätze, automatic intermediate-integral selection, and production-scale topology benchmarks remain future work.
-
-```bash
-cargo run --release -p zippel-laporta --example block_bench
-```
-
-On the included massless box, a local release run measured 31.8 ms for 1000 Laporta replays versus 3.79 ms for block evaluation (8.4x). Learning required 30 oracle probes and refitting 27. The benchmark reports setup and evaluation separately and checks fresh samples. Timing depends on hardware. Laporta retains its existing residue engine; block discovery uses `polycore::modp_echelon`, which stores the modulus once.
-
-For development, this checkout uses sibling `../poly-core` and `../groebner` repositories through Cargo path dependencies/patches. Release packaging requires publishing the matching polycore/polyfactor changes and updating those dependencies.
-
 ## References
 
 - J. Hu, M. Monagan, _A fast parallel sparse polynomial GCD algorithm_, [J. Symbolic Comput. 105 (2021)](https://www.cecm.sfu.ca/~mmonagan/papers/HuGCDaccept.pdf).
@@ -128,9 +83,10 @@ For development, this checkout uses sibling `../poly-core` and `../groebner` rep
 - K. G. Chetyrkin, F. V. Tkachov, _Integration by parts: The algorithm to calculate beta-functions in 4 loops_, Nucl. Phys. B 192 (1981).
 - S. Laporta, _High-precision calculation of multi-loop Feynman integrals by difference equations_, Int. J. Mod. Phys. A 15 (2000), [arXiv:hep-ph/0102033](https://arxiv.org/abs/hep-ph/0102033).
 - J. Klappert, F. Lange, _Reconstructing rational functions with FireFly_, Comput. Phys. Commun. 247 (2020), [arXiv:1904.00009](https://arxiv.org/abs/1904.00009).
-- J. Klappert, F. Lange, P. Maierhöfer, J. Usovitsch, _Integral reduction with Kira 2.0 and finite field methods_, Comput. Phys. Commun. 266 (2021), [arXiv:2008.06494](https://arxiv.org/abs/2008.06494).
 - X. Guan, X. Liu, Y.-Q. Ma, W.-H. Wu, _Blade: A package for block-triangular form improved Feynman integrals decomposition_, [arXiv:2405.14621](https://arxiv.org/abs/2405.14621).
+- J. Klappert, F. Lange, P. Maierhöfer, J. Usovitsch, _Integral reduction with Kira 2.0 and finite field methods_, Comput. Phys. Commun. 266 (2021), [arXiv:2008.06494](https://arxiv.org/abs/2008.06494).
 - F. Lange, J. Usovitsch, Z. Wu, _Kira 3: integral reduction with efficient seeding and optimized equation selection_, [arXiv:2505.20197](https://arxiv.org/abs/2505.20197).
+- A. V. Smirnov, M. Zeng, _FIRE 7: Automatic Reduction with Modular Approach_, [arXiv:2510.07150](https://arxiv.org/abs/2510.07150).
 
 ## License
 

@@ -52,9 +52,10 @@ struct Expr {
 pub struct System {
     pub integrals: Vec<Index>,
     pub vars: Vec<String>,
-    seeds: BTreeSet<Index>,
-    columns: BTreeMap<Index, usize>,
-    eqs: Vec<Vec<(usize, Lin)>>,
+    pub(super) seeds: BTreeSet<Index>,
+    pub(super) columns: BTreeMap<Index, usize>,
+    pub(super) eqs: Vec<Vec<(usize, Lin)>>,
+    pub(super) numeric: Option<crate::family::NumericRows>,
 }
 
 impl Family {
@@ -319,12 +320,13 @@ impl Family {
             seeds: all,
             columns,
             eqs,
+            numeric: None,
         }
     }
 }
 
 /// Every vector of `k` naturals summing to at most `max`.
-fn compositions(k: usize, max: i32) -> Vec<Vec<i32>> {
+pub(super) fn compositions(k: usize, max: i32) -> Vec<Vec<i32>> {
     (0..k).fold(vec![vec![]], |acc, _| {
         acc.into_iter()
             .flat_map(|v: Vec<i32>| {
@@ -350,7 +352,7 @@ fn weight(a: &[i32]) -> (i32, i32) {
 }
 
 /// Laporta's order: lines, then dots, then numerators, then the indices from the last.
-fn key(a: &[i32], lines: usize) -> (usize, i32, i32, Vec<i32>) {
+pub(super) fn key(a: &[i32], lines: usize) -> (usize, i32, i32, Vec<i32>) {
     let (pos, neg) = weight(a);
     let t = a[..lines].iter().filter(|&&x| x > 0).count();
     (t, pos, neg, a.iter().rev().copied().collect())
@@ -370,12 +372,14 @@ fn axpy(a: &mut [Rational64], b: &[Rational64], k: Rational64) {
 }
 
 impl System {
-    pub const fn len(&self) -> usize {
-        self.eqs.len()
+    pub fn len(&self) -> usize {
+        self.numeric
+            .as_ref()
+            .map_or(self.eqs.len(), crate::family::NumericRows::len)
     }
 
-    pub const fn is_empty(&self) -> bool {
-        self.eqs.is_empty()
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     pub fn column(&self, a: &Index) -> usize {
@@ -384,6 +388,9 @@ impl System {
 
     /// Equation `e` at the numeric point `x`.
     pub fn row(&self, e: usize, x: &[u64], p: u64) -> Row {
+        if let Some(rows) = &self.numeric {
+            return rows.row(e, x, p).unwrap_or_default();
+        }
         let residue = |v: i64| u64::try_from(i128::from(v).rem_euclid(i128::from(p))).unwrap();
         self.eqs[e]
             .iter()
@@ -400,9 +407,17 @@ impl System {
     pub fn learn(&self, targets: &[Index], seed: u64) -> Plan {
         let targets: Vec<usize> = targets.iter().map(|t| self.column(t)).collect();
         let p = Primes::new().next().unwrap();
-        let x: Vec<u64> = (0..self.vars.len() as u64)
-            .map(|i| point(&[seed, 7, i], p))
-            .collect();
+        let x: Vec<u64> = (0..32)
+            .find_map(|attempt| {
+                let x = (0..self.vars.len() as u64)
+                    .map(|i| point(&[seed, 7 + attempt, i], p))
+                    .collect::<Vec<_>>();
+                self.numeric
+                    .as_ref()
+                    .is_none_or(|r| r.defined(&x, p))
+                    .then_some(x)
+            })
+            .expect("no nonsingular family sample");
         let rows: Vec<Row> = (0..self.len()).map(|e| self.row(e, &x, p)).collect();
         Plan::learn(&rows, &targets, p)
     }

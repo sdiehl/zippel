@@ -1,4 +1,4 @@
-(* Literal FIRE family definition; squared propagators may have either sign. *)
+(* Literal Mathematica family definition; squared propagators may have either sign. *)
 Internal = {k};
 External = {p1,p2,p3};
 Propagators = {-k^2, -(k+p1)^2, -(k+p1+p2)^2, -(k+p1+p2+p3)^2};

@@ -419,3 +419,70 @@ fn restore_factors(
         .collect();
     out
 }
+
+/// Discover factors depending on one variable and combine them with supplied
+/// multivariate candidates before lifting.
+///
+/// Discovery uses `polyfactor` on three
+/// independent slices per coordinate and shares vector probes across components.
+/// Small rational factor coefficients are guessed with Wang reconstruction;
+/// unsuccessful guesses simply leave a residual denominator to reconstruct.
+/// This optional preprocessing is most useful for expensive, factor-rich oracles.
+pub fn lift_with_discovered_factors(
+    f: impl Fn(&[u64], u64) -> Option<Vec<u64>> + Sync,
+    n: usize,
+    candidates: &[Poly],
+    seed: u64,
+) -> Option<Vec<Fraction>> {
+    let p = Primes::new().next()?;
+    let memo = Mutex::new(HashMap::new());
+    let sample = |x: &[u64], prime| {
+        if prime != p {
+            return f(x, prime);
+        }
+        if let Some(y) = memo.lock().unwrap().get(x) {
+            return Option::clone(y);
+        }
+        let y = f(x, p);
+        memo.lock().unwrap().insert(x.to_vec(), y.clone());
+        y
+    };
+    let initial = (0..16).find_map(|i| {
+        sample(
+            &(0..n as u64)
+                .map(|j| point(&[seed, 85, i, j], p))
+                .collect::<Vec<_>>(),
+            p,
+        )
+    });
+    let Some(initial) = initial else {
+        return lift_with_factors(&f, n, candidates, seed);
+    };
+    let len = initial.len();
+    let mut pool = candidates.to_vec();
+    let modulus = BigInt::from(p);
+    for component in 0..len {
+        let oracle = |x: &[u64], p| sample(x, p)?.get(component).copied();
+        for factor in
+            zippel_interp::factors::univariate_factors(&oracle, n, p, seed).unwrap_or_default()
+        {
+            let terms = factor
+                .terms
+                .iter()
+                .map(|(e, c)| {
+                    Some((
+                        Monomial::new(e.clone()),
+                        crt::wang(&BigInt::from(*c), &modulus)?,
+                    ))
+                })
+                .collect::<Option<Vec<_>>>();
+            if let Some(terms) = terms {
+                let g = Poly::new(terms, n, Order::Lex);
+                if !pool.contains(&g) {
+                    pool.push(g);
+                }
+            }
+        }
+    }
+    lift_with_factors(sample, n, &pool, seed)
+}

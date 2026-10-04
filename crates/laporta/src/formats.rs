@@ -1,17 +1,14 @@
-//! Declarative Kira YAML and FIRE Mathematica family interchange.
+//! Declarative YAML and Mathematica family interchange.
 //!
-//! The IBP engine currently accepts complete quadratic families with affine
-//! kinematics and integer momentum coefficients. Unsupported definitions are
+//! Complete quadratic families support polynomial kinematics and rational
+//! momentum coefficients. Unsupported definitions are
 //! errors, never evaluated as Mathematica programs or silently approximated.
 
 #![allow(clippy::too_many_lines)]
 
-use crate::{
-    ibp::{Family, Lin, System},
-    Plan,
-};
+use crate::{family::PolynomialFamily, ibp::System, Plan};
 use num_rational::BigRational;
-use num_traits::{One, ToPrimitive, Zero};
+use num_traits::Zero;
 use polycore::{dense, Monomial, Order, Poly, Ring};
 use serde_yaml_ng::Value;
 
@@ -37,7 +34,7 @@ fn error(s: impl Into<String>) -> FormatError {
 #[derive(Clone, Debug)]
 pub struct ImportedFamily {
     pub name: String,
-    pub family: Family,
+    pub family: PolynomialFamily,
     /// Original propagator = sign * the normalized internal propagator.
     pub signs: Vec<i64>,
 }
@@ -84,40 +81,6 @@ fn explicit_products(s: &str) -> String {
     out
 }
 
-fn affine(g: &Poly<Q>) -> Result<Vec<Q>> {
-    let mut out = vec![Q::zero(); g.nvars + 1];
-    for (m, c) in &g.terms {
-        let total: u32 = m.exps().iter().sum();
-        if total > 1 {
-            return Err(error(
-                "non-affine kinematics: introduce squared-mass invariants",
-            ));
-        }
-        let k = m.exps().iter().position(|&e| e == 1).map_or(0, |j| j + 1);
-        out[k] += c;
-    }
-    Ok(out)
-}
-fn integers(cs: Vec<Q>) -> Result<Vec<i64>> {
-    cs.into_iter()
-        .map(|c| {
-            if !c.is_integer() {
-                return Err(error("fractional coefficient unsupported by IBP family"));
-            }
-            c.to_integer()
-                .to_i64()
-                .ok_or_else(|| error("coefficient exceeds i64"))
-        })
-        .collect()
-}
-fn momentum(r: &Ring, s: &str) -> Result<Vec<i64>> {
-    let cs = integers(affine(&parse(r, s)?)?)?;
-    if cs[0] != 0 {
-        return Err(error("momentum contains scalar constant"));
-    }
-    Ok(cs[1..].to_vec())
-}
-
 fn keys(v: &Value, allowed: &[&str]) -> Result<()> {
     for k in v
         .as_mapping()
@@ -132,14 +95,14 @@ fn keys(v: &Value, allowed: &[&str]) -> Result<()> {
     Ok(())
 }
 
-/// Read one named family from Kira's `integralfamilies.yaml` and `kinematics.yaml`.
+/// Read one named family from the YAML format’s `integralfamilies.yaml` and `kinematics.yaml`.
 ///
-/// Supports one contiguous top sector, momentum conservation, scalar-product
+/// Supports sector unions, cuts, momentum conservation, polynomial scalar-product
 /// rules involving momentum sums, and fixing one invariant to unity.
 ///
 /// # Errors
 /// Rejects malformed, unsupported, incomplete, or dependent family definitions.
-pub fn read_kira(families: &str, kinematics: &str, name: &str) -> Result<ImportedFamily> {
+pub fn read_family_yaml(families: &str, kinematics: &str, name: &str) -> Result<ImportedFamily> {
     let defs: Value = serde_yaml_ng::from_str(families).map_err(|e| error(e.to_string()))?;
     let kin: Value = serde_yaml_ng::from_str(kinematics).map_err(|e| error(e.to_string()))?;
     let k = &kin["kinematics"];
@@ -160,7 +123,15 @@ pub fn read_kira(families: &str, kinematics: &str, name: &str) -> Result<Importe
         .ok_or_else(|| error("family not found"))?;
     keys(
         f,
-        &["name", "loop_momenta", "top_level_sectors", "propagators"],
+        &[
+            "name",
+            "loop_momenta",
+            "top_level_sectors",
+            "propagators",
+            "cut_propagators",
+            "zero_sectors",
+            "permutation_option",
+        ],
     )?;
     let loops = names(&f["loop_momenta"])?;
     let mut external = Vec::new();
@@ -227,41 +198,62 @@ pub fn read_kira(families: &str, kinematics: &str, name: &str) -> Result<Importe
             ))
         })
         .collect::<Result<_>>()?;
-    let legs = scalar_products(&er, &vr, &rules)?;
-    let props: Vec<_> = seq(&f["propagators"])?
+    let products = scalar_products(&er, &vr, &rules)?;
+    let full = ring(mr.names.iter().chain(&vars).cloned().collect())?;
+    let propagators = seq(&f["propagators"])?
         .iter()
         .map(|v| {
             let v = seq(v)?;
             if v.len() != 2 {
-                return Err(error("propagator requires [momentum, mass_squared]"));
+                return Err(error(
+                    "propagator requires [momentum or quadratic expression, mass_squared]",
+                ));
             }
-            Ok((
-                momentum(&mr, &substitute(atom(&v[0])?))?,
-                integers(affine(&parse(&vr, &atom(&v[1])?)?)?)?,
-            ))
+            let g = parse(&full, &substitute(atom(&v[0])?))?;
+            let degree = g
+                .terms
+                .iter()
+                .map(|(m, _)| m.exps()[..mr.nvars()].iter().sum::<u32>())
+                .max()
+                .unwrap_or(0);
+            let g = if degree == 1 { g.pow(2) } else { g };
+            Ok(&g - &parse(&full, &atom(&v[1])?)?)
         })
-        .collect::<Result<_>>()?;
-    let sectors = seq(&f["top_level_sectors"])?;
-    if sectors.len() != 1 {
-        return Err(error("exactly one top_level_sector is currently supported"));
-    }
-    let sector = sectors[0]
-        .as_u64()
-        .ok_or_else(|| error("sector must be an integer"))?;
-    if sector == 0 || sector.checked_add(1).is_none_or(|s| !s.is_power_of_two()) {
-        return Err(error("top sector must be contiguous: 2^lines-1"));
-    }
-    let lines = sector.count_ones() as usize;
-    let signs = vec![1; props.len()];
-    let mut family = Family {
+        .collect::<Result<Vec<_>>>()?;
+    let sectors = seq(&f["top_level_sectors"])?
+        .iter()
+        .map(sector)
+        .collect::<Result<Vec<_>>>()?;
+    let zero_sectors = if f["zero_sectors"].is_null() {
+        vec![]
+    } else {
+        seq(&f["zero_sectors"])?
+            .iter()
+            .map(sector)
+            .collect::<Result<_>>()?
+    };
+    let cuts = if f["cut_propagators"].is_null() {
+        vec![]
+    } else {
+        seq(&f["cut_propagators"])?
+            .iter()
+            .map(|v| {
+                v.as_u64()
+                    .and_then(|i| i.checked_sub(1))
+                    .and_then(|i| usize::try_from(i).ok())
+                    .ok_or_else(|| error("cut indices start at one"))
+            })
+            .collect::<Result<_>>()?
+    };
+    let mut family = PolynomialFamily {
         vars,
         loops: loops.len(),
-        props,
-        lines,
-        legs,
-        symmetries: vec![],
+        propagators,
+        products,
+        top_sectors: sectors,
+        zero_sectors,
+        cuts,
     };
-    validate(&family)?;
     if !k["symbol_to_replace_by_one"].is_null() {
         let fixed = atom(&k["symbol_to_replace_by_one"])?;
         if fixed == "d" || !family.vars.contains(&fixed) {
@@ -269,6 +261,8 @@ pub fn read_kira(families: &str, kinematics: &str, name: &str) -> Result<Importe
         }
         family = family.fix(&fixed, 1);
     }
+    validate(&family)?;
+    let signs = vec![1; family.propagators.len()];
     Ok(ImportedFamily {
         name: name.into(),
         family,
@@ -276,15 +270,27 @@ pub fn read_kira(families: &str, kinematics: &str, name: &str) -> Result<Importe
     })
 }
 
-fn scalar_products(er: &Ring, vr: &Ring, rules: &[(String, String)]) -> Result<Vec<Vec<Lin>>> {
+fn sector(v: &Value) -> Result<u32> {
+    if let Some(n) = v.as_u64() {
+        return u32::try_from(n).map_err(|_| error("sector exceeds 32 bits"));
+    }
+    let s = atom(v)?;
+    if let Some(bits) = s.strip_prefix('b') {
+        // In this notation the leftmost bit denotes the first propagator.
+        return u32::from_str_radix(&bits.chars().rev().collect::<String>(), 2)
+            .map_err(|_| error("invalid binary sector"));
+    }
+    Err(error("expected integer or binary sector"))
+}
+
+fn scalar_products(er: &Ring, vr: &Ring, rules: &[(String, String)]) -> Result<Vec<Vec<Poly<Q>>>> {
     let n = er.nvars();
     let pairs: Vec<_> = (0..n).flat_map(|i| (i..n).map(move |j| (i, j))).collect();
     let mut a = Vec::new();
     let mut rhs = Vec::new();
     for (lhs, rhs_expr) in rules {
-        let g = parse(er, lhs)?;
         let mut row = vec![Q::zero(); pairs.len()];
-        for (m, c) in g.terms {
+        for (m, c) in parse(er, lhs)?.terms {
             let indices: Vec<_> = m
                 .exps()
                 .iter()
@@ -292,64 +298,59 @@ fn scalar_products(er: &Ring, vr: &Ring, rules: &[(String, String)]) -> Result<V
                 .flat_map(|(i, &e)| std::iter::repeat_n(i, e as usize))
                 .collect();
             if indices.len() != 2 {
-                return Err(error(
-                    "scalar-product rule must be quadratic in external momenta",
-                ));
+                return Err(error("scalar-product rule must be quadratic in momenta"));
             }
             let pos = pairs
                 .iter()
                 .position(|&(i, j)| i == indices[0] && j == indices[1])
-                .ok_or_else(|| error("unknown scalar product"))?;
+                .ok_or_else(|| error("unknown product"))?;
             row[pos] += c;
         }
         a.push(row);
-        rhs.push(affine(&parse(vr, rhs_expr)?)?);
+        rhs.push(parse(vr, rhs_expr)?);
     }
-    let mut values = vec![vec![Q::zero(); vr.nvars() + 1]; pairs.len()];
-    for k in 0..=vr.nvars() {
-        let b: Vec<_> = rhs.iter().map(|r| r[k].clone()).collect();
+    let mut support = std::collections::BTreeSet::new();
+    for g in &rhs {
+        for (m, _) in &g.terms {
+            support.insert(m.exps().to_vec());
+        }
+    }
+    support.insert(vec![0; vr.nvars()]);
+    let mut values = vec![Vec::new(); pairs.len()];
+    for exps in support {
+        let b: Vec<_> = rhs
+            .iter()
+            .map(|g| {
+                g.terms
+                    .iter()
+                    .find(|(m, _)| m.exps() == exps)
+                    .map_or_else(Q::zero, |(_, c)| c.clone())
+            })
+            .collect();
         let x = dense::solve(&a, &b).map_err(|e| error(format!("scalar-product rules: {e}")))?;
         if x.len() != pairs.len() {
             return Err(error("incomplete scalar-product rules"));
         }
         for (v, c) in values.iter_mut().zip(x) {
-            v[k] = c * Q::from_integer(2.into());
+            v.push((Monomial::new(exps.clone()), c));
         }
     }
-    let mut legs = vec![vec![vec![]; n]; n];
-    for ((i, j), v) in pairs.into_iter().zip(values) {
-        let v = integers(v)?;
-        legs[i][j].clone_from(&v);
-        legs[j][i] = v;
+    let zero = Poly::constant(Q::zero(), vr.nvars(), Order::Lex);
+    let mut products = vec![vec![zero; n]; n];
+    for ((i, j), terms) in pairs.into_iter().zip(values) {
+        let g = Poly::new(terms, vr.nvars(), Order::Lex);
+        products[i][j] = g.clone();
+        products[j][i] = g;
     }
-    Ok(legs)
+    Ok(products)
 }
 
-fn validate(f: &Family) -> Result<()> {
-    if f.loops == 0 || f.lines == 0 || f.lines >= 32 || f.lines > f.props.len() {
-        return Err(error("invalid loop/line count"));
+fn validate(f: &PolynomialFamily) -> Result<()> {
+    if !f.valid() {
+        return Err(error("invalid polynomial family dimensions or sectors"));
     }
-    let n = f.loops + f.legs.len();
-    let pairs: Vec<_> = (0..f.loops)
-        .flat_map(|i| (i..n).map(move |j| (i, j)))
-        .collect();
-    if pairs.len() != f.props.len() {
-        return Err(error(
-            "propagators must span all loop scalar products, including ISPs",
-        ));
-    }
-    let a: Vec<Vec<Q>> = f
-        .props
-        .iter()
-        .map(|(q, _)| {
-            pairs
-                .iter()
-                .map(|&(i, j)| Q::from_integer((q[i] * q[j] * if i == j { 1 } else { 2 }).into()))
-                .collect()
-        })
-        .collect();
-    if dense::invert(&a).is_none() {
-        return Err(error("linearly dependent propagators"));
+    if !f.independent() {
+        return Err(error("dependent propagators"));
     }
     Ok(())
 }
@@ -407,14 +408,48 @@ fn list(s: &str) -> Result<Vec<&str>> {
     )
 }
 
-/// Read literal FIRE assignments: Internal, External, Propagators, Replacements.
+// Mathematica momentum components, e.g. p[1], are algebraic names, not calls.
+fn indexed_names(s: &str) -> String {
+    let chars: Vec<_> = s.chars().collect();
+    let mut out = String::new();
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] == '[' && i > 0 && (chars[i - 1].is_ascii_alphanumeric() || chars[i - 1] == '_')
+        {
+            let mut j = i + 1;
+            while j < chars.len() && chars[j].is_whitespace() {
+                j += 1;
+            }
+            let start = j;
+            while j < chars.len() && chars[j].is_ascii_digit() {
+                j += 1;
+            }
+            let end = j;
+            while j < chars.len() && chars[j].is_whitespace() {
+                j += 1;
+            }
+            if end > start && chars.get(j) == Some(&']') {
+                out.push('_');
+                out.extend(chars[start..end].iter());
+                i = j + 1;
+                continue;
+            }
+        }
+        out.push(chars[i]);
+        i += 1;
+    }
+    out
+}
+
+/// Read Mathematica declarations: Internal, External, Propagators, Replacements.
 ///
 /// `invariants` gives the independent scalar names (excluding d); `lines` excludes
-/// trailing ISPs. General Mathematica evaluation and executable statements are rejected.
+/// trailing ISPs. Indexed momentum names, mapped squares, and `Thread` rules are
+/// supported. General Mathematica evaluation and executable statements are rejected.
 ///
 /// # Errors
 /// Rejects executable input, unsupported propagators, and incomplete kinematics.
-pub fn read_fire(
+pub fn read_family_mathematica(
     src: &str,
     name: &str,
     invariants: &[&str],
@@ -430,11 +465,12 @@ pub fn read_fire(
         rest = tail;
     }
     clean.push_str(rest);
+    let clean = indexed_names(&clean);
     let mut assignments = BTreeMap::new();
     for statement in split(&clean, ';')?.into_iter().filter(|s| !s.is_empty()) {
         let (key, value) = statement
             .split_once('=')
-            .ok_or_else(|| error("only literal FIRE assignments are supported"))?;
+            .ok_or_else(|| error("only literal Mathematica assignments are supported"))?;
         let key = key.trim();
         if !["Internal", "External", "Propagators", "Replacements"].contains(&key)
             || assignments.insert(key, value.trim()).is_some()
@@ -465,90 +501,69 @@ pub fn read_fire(
     let er = ring(external.clone())?;
     let mr = ring(loops.iter().chain(&external).cloned().collect())?;
     let full = ring(mr.names.iter().chain(&vars).cloned().collect())?;
-    let rules: Vec<_> = list(get("Replacements")?)?
-        .into_iter()
-        .filter(|s| !s.is_empty())
-        .map(|s| {
-            let (a, b) = s
-                .split_once("->")
-                .ok_or_else(|| error("expected replacement arrow"))?;
-            Ok((a.trim().into(), b.trim().into()))
-        })
-        .collect::<Result<_>>()?;
-    let legs = scalar_products(&er, &vr, &rules)?;
-    let mut props = Vec::new();
-    let mut signs = Vec::new();
-    for src in list(get("Propagators")?)? {
-        let g = parse(&full, src)?;
-        let coeff = |exps: &[u32]| {
-            g.terms
-                .iter()
-                .find(|(m, _)| m.exps() == exps)
-                .map_or_else(Q::zero, |(_, c)| c.clone())
-        };
-        let (base, sign) = (0..loops.len())
-            .find_map(|i| {
-                let mut e = vec![0; full.nvars()];
-                e[i] = 2;
-                let c = coeff(&e);
-                if c == Q::one() {
-                    Some((i, 1))
-                } else if c == -Q::one() {
-                    Some((i, -1))
-                } else {
-                    None
-                }
+    let replacement = get("Replacements")?.trim();
+    let rules = if let Some(inner) = replacement
+        .strip_prefix("Thread[")
+        .and_then(|s| s.strip_suffix(']'))
+    {
+        let (lhs, rhs) = inner
+            .split_once("->")
+            .ok_or_else(|| error("Thread requires a replacement arrow"))?;
+        let lhs = list(lhs)?;
+        let rhs = list(rhs)?;
+        if lhs.len() != rhs.len() {
+            return Err(error("Thread list lengths differ"));
+        }
+        lhs.into_iter()
+            .zip(rhs)
+            .map(|(a, b)| (a.to_owned(), b.to_owned()))
+            .collect::<Vec<_>>()
+    } else {
+        list(replacement)?
+            .into_iter()
+            .filter(|s| !s.is_empty())
+            .map(|s| {
+                let (a, b) = s
+                    .split_once("->")
+                    .ok_or_else(|| error("expected replacement arrow"))?;
+                Ok((a.trim().into(), b.trim().into()))
             })
-            .ok_or_else(|| error("propagator needs a loop-square coefficient +1 or -1"))?;
-        let mut q = vec![0; mr.nvars()];
-        q[base] = 1;
-        for (j, v) in q.iter_mut().enumerate().filter(|(j, _)| *j != base) {
-            let mut e = vec![0; full.nvars()];
-            e[base] = 1;
-            e[j] = 1;
-            *v = integers(vec![coeff(&e) / Q::from_integer((2 * sign).into())])?[0];
-        }
-        let momentum = Poly::new(
-            q.iter()
-                .enumerate()
-                .filter(|(_, v)| **v != 0)
-                .map(|(i, &v)| {
-                    let mut e = vec![0; full.nvars()];
-                    e[i] = 1;
-                    (Monomial::new(e), Q::from_integer(v.into()))
-                })
-                .collect(),
-            full.nvars(),
-            Order::Lex,
-        );
-        let mass = &momentum.pow(2) - &g.scale(&Q::from_integer(sign.into()));
-        if mass
-            .terms
+            .collect::<Result<Vec<_>>>()?
+    };
+    let products = scalar_products(&er, &vr, &rules)?;
+    let props = get("Propagators")?;
+    let propagators = if let Some((function, values)) = props.split_once("/@") {
+        let function = function
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .collect::<String>();
+        let sign = match function.as_str() {
+            "#^2&" | "(#^2)&" | "(#)^2&" | "(-#)^2&" => 1,
+            "-#^2&" | "(-#^2)&" => -1,
+            _ => return Err(error("only mapped momentum squares are supported")),
+        };
+        list(values)?
             .iter()
-            .any(|(m, _)| m.exps()[..mr.nvars()].iter().any(|&e| e != 0))
-        {
-            return Err(error(
-                "propagator is not a signed momentum square minus affine mass",
-            ));
-        }
-        let mass = Poly::new(
-            mass.terms
-                .iter()
-                .map(|(m, c)| (Monomial::new(m.exps()[mr.nvars()..].to_vec()), c.clone()))
-                .collect(),
-            vars.len(),
-            Order::Lex,
-        );
-        props.push((q, integers(affine(&mass)?)?));
-        signs.push(sign);
+            .map(|s| Ok(parse(&full, s)?.pow(2).scale(&Q::from_integer(sign.into()))))
+            .collect::<Result<Vec<_>>>()?
+    } else {
+        list(props)?
+            .iter()
+            .map(|s| parse(&full, s))
+            .collect::<Result<Vec<_>>>()?
+    };
+    if lines >= 32 || lines == 0 || lines > propagators.len() {
+        return Err(error("invalid line count"));
     }
-    let family = Family {
+    let signs = vec![1; propagators.len()];
+    let family = PolynomialFamily {
         vars,
         loops: loops.len(),
-        props,
-        lines,
-        legs,
-        symmetries: vec![],
+        propagators,
+        products,
+        top_sectors: vec![(1 << lines) - 1],
+        zero_sectors: vec![],
+        cuts: vec![],
     };
     validate(&family)?;
     Ok(ImportedFamily {
@@ -559,7 +574,7 @@ pub fn read_fire(
 }
 
 impl ImportedFamily {
-    /// Mathematica replacement rules, using Kira's family head or FIRE's `G[id,{...}]`.
+    /// Mathematica replacement rules, using the YAML format’s family head or the indexed format’s `G[id,{...}]`.
     ///
     /// # Errors
     /// Rejects incompatible coefficient dimensions or invalid variable names.
@@ -568,7 +583,7 @@ impl ImportedFamily {
         system: &System,
         plan: &Plan,
         coefficients: &[Fraction],
-        fire_id: Option<u32>,
+        family_id: Option<u32>,
     ) -> Result<String> {
         if coefficients.len() != plan.targets.len() * plan.masters.len() {
             return Err(error("coefficient dimensions"));
@@ -579,7 +594,7 @@ impl ImportedFamily {
                 .iter()
                 .map(ToString::to_string)
                 .collect();
-            fire_id.map_or_else(
+            family_id.map_or_else(
                 || format!("{}[{}]", self.name, indices.join(",")),
                 |id| format!("G[{id},{{{}}}]", indices.join(",")),
             )
@@ -625,11 +640,11 @@ impl ImportedFamily {
 }
 
 impl ImportedFamily {
-    /// FIRE `.tables`: reduction entries plus an explicit integral-ID dictionary.
+    /// Mathematica `.tables`: reduction entries plus an explicit integral-ID dictionary.
     ///
     /// # Errors
     /// Rejects incompatible coefficient dimensions or invalid variable names.
-    pub fn fire_tables(
+    pub fn reduction_tables(
         &self,
         system: &System,
         plan: &Plan,
@@ -693,5 +708,124 @@ impl ImportedFamily {
             entries.join(",\n"),
             dictionary.join(",\n")
         ))
+    }
+}
+
+/// A Mathematica table with its integral dictionary retained for basis-independent checks.
+#[derive(Clone, Debug)]
+pub struct ReductionTable {
+    pub integrals: BTreeMap<String, (u32, Vec<i32>)>,
+    pub reductions: BTreeMap<String, Vec<(String, String)>>,
+}
+
+/// Read the two-list `.tables` interchange format without executing expressions.
+///
+/// # Errors
+/// Rejects malformed lists, repeated IDs, and missing dictionary references.
+pub fn read_reduction_tables(src: &str) -> Result<ReductionTable> {
+    fn pair(s: &str) -> Result<(&str, &str)> {
+        let v = list(s)?;
+        if v.len() != 2 {
+            return Err(error("expected pair"));
+        }
+        Ok((v[0], v[1]))
+    }
+    let id = |s: &str| {
+        if !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()) {
+            Ok(s.to_owned())
+        } else {
+            Err(error("invalid integral ID"))
+        }
+    };
+    let (entries, dictionary) = pair(src)?;
+    let mut integrals = BTreeMap::new();
+    for entry in list(dictionary)?.into_iter().filter(|s| !s.is_empty()) {
+        let (i, value) = pair(entry)?;
+        let (family, indices) = pair(value)?;
+        let family = family
+            .parse::<u32>()
+            .map_err(|_| error("invalid family ID"))?;
+        let indices = list(indices)?
+            .iter()
+            .map(|v| {
+                v.parse::<i32>()
+                    .map_err(|_| error("invalid integral index"))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        if integrals.insert(id(i)?, (family, indices)).is_some() {
+            return Err(error("duplicate integral ID"));
+        }
+    }
+    let mut reductions = BTreeMap::new();
+    for entry in list(entries)?.into_iter().filter(|s| !s.is_empty()) {
+        let (i, terms) = pair(entry)?;
+        let i = id(i)?;
+        if !integrals.contains_key(&i) {
+            return Err(error("target missing from dictionary"));
+        }
+        let mut result = Vec::new();
+        for term in list(terms)?.into_iter().filter(|s| !s.is_empty()) {
+            let (j, c) = pair(term)?;
+            let j = id(j)?;
+            if !integrals.contains_key(&j) {
+                return Err(error("master missing from dictionary"));
+            }
+            let c = c
+                .strip_prefix('"')
+                .and_then(|c| c.strip_suffix('"'))
+                .ok_or_else(|| error("coefficient must be quoted"))?;
+            result.push((j, c.into()));
+        }
+        if reductions.insert(i, result).is_some() {
+            return Err(error("duplicate reduction"));
+        }
+    }
+    Ok(ReductionTable {
+        integrals,
+        reductions,
+    })
+}
+
+impl ReductionTable {
+    /// Evaluate a table row over a prime, keyed by external integral indices.
+    /// A missing row, unbound symbol, or singular coefficient rejects the probe.
+    pub fn evaluate(
+        &self,
+        family: u32,
+        indices: &[i32],
+        vars: &[String],
+        x: &[u64],
+        p: u64,
+    ) -> Option<BTreeMap<(u32, Vec<i32>), u64>> {
+        use polycore::modp::add;
+        use polycore::{Fp, Modular};
+        if vars.len() != x.len() || x.iter().any(|&v| v >= p) {
+            return None;
+        }
+        let (i, _) = self
+            .integrals
+            .iter()
+            .find(|(_, v)| v.0 == family && v.1 == indices)?;
+        let params = vars
+            .iter()
+            .zip(x)
+            .map(|(s, &v)| (s.as_str(), Fp::new(v, p)))
+            .collect::<Vec<_>>();
+        let ring = Ring::new(Vec::<String>::new(), Order::Lex);
+        let mut out = BTreeMap::new();
+        for (j, c) in self.reductions.get(i)? {
+            let c = ring
+                .parse_with(
+                    &explicit_products(c),
+                    &|v| Fp::new(polycore::crt::reduce(&Q::from_integer(v), p).unwrap(), p),
+                    &params,
+                )
+                .ok()?;
+            let value = c.lc().map_or(0, |c| c.residue_mod(p));
+            let entry = out.entry(self.integrals.get(j)?.clone()).or_insert(0);
+            *entry = add(*entry, value, p);
+        }
+        out.retain(|_, c| *c != 0);
+        Some(out)
     }
 }

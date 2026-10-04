@@ -13,6 +13,7 @@
 )]
 
 pub mod block;
+pub mod family;
 pub mod formats;
 pub mod ibp;
 

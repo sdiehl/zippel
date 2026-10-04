@@ -1,5 +1,4 @@
-# Source: Kira examples/1-loop-box/config, commit aadf0671ed090b8427e14a3d908d6c7033d46b2c
-# https://gitlab.com/kira-pyred/kira
+# Source: YAML examples/1-loop-box/config, commit aadf0671ed090b8427e14a3d908d6c7033d46b2c
 integralfamilies:
   - name: "box"
     loop_momenta: [k1]
