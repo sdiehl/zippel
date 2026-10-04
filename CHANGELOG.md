@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Add denominator discovery and factored reconstruction.
+- Preserve known denominator factors through CRT lifting.
+- Add adaptive block-triangular reduction.
+- Search relations with weighted polynomial ansätze.
+- Select intermediates and refit sparse relations across primes.
+- Import YAML and Mathematica families and export reduction tables.
+- Support polynomial kinematics and rational momentum coefficients.
+- Support sector unions and cut propagators.
+- Add external table comparisons and block reduction benchmarks.
 - Move arithmetic, evaluation and exact division utilities into polycore.
 - Move geometric sparse recovery into `zippel-interp`.
 - Expose each GCD algorithm through a named function.
