@@ -21,7 +21,7 @@ fn main() {
         "box",
     )
     .unwrap();
-    let family = imported.family.fix("s", 1);
+    let family = imported.family.fix("s", 1).unwrap();
     let mode = std::env::args().nth(1).unwrap_or_default();
     let double = mode == "double-box";
     let (system, targets) = if double {
@@ -43,7 +43,7 @@ fn main() {
         .family;
         family.cuts = (0..8).collect();
         for (v, value) in [("s12", 1), ("s34", 3), ("s45", 5), ("s51", 7)] {
-            family = family.fix(v, value);
+            family = family.fix(v, value).unwrap();
         }
         (
             family.system(2, 2).unwrap(),
@@ -58,7 +58,7 @@ fn main() {
             vec![vec![2, 1, 1, 1], vec![1, 2, 1, 1], vec![2, 2, 1, 1]],
         )
     };
-    let mut plan = system.learn(&targets, 7);
+    let mut plan = system.learn(&targets, 7).unwrap();
     eprintln!(
         "{} equations; {} retained; {} masters",
         system.len(),
@@ -76,7 +76,7 @@ fn main() {
     let (blocks, form, report) = BlockPlan::learn_adaptive(
         oracle,
         2,
-        plan.targets.len(),
+        &plan.targets,
         plan.masters.len(),
         p,
         7,

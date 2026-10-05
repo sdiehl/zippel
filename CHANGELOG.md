@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Share the residue echelon between Laporta and block discovery.
+- Detect scaleless sectors and exact parametric symmetries.
+- Check block target ordering and explicit evaluation primes.
+- Reject stalled refits and reuse block evaluation scratch.
+- Return failed specialization and learning through `Option`.
 - Add denominator discovery and factored reconstruction.
 - Preserve known denominator factors through CRT lifting.
 - Add adaptive block-triangular reduction.

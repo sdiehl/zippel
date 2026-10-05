@@ -259,8 +259,8 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
 name = "polycore"
-version = "0.1.5"
-source = "git+https://github.com/sdiehl/polycore.git?rev=34033c23b2bb9d89e7d4a4cdc0b46969cb475f3e#34033c23b2bb9d89e7d4a4cdc0b46969cb475f3e"
+version = "0.1.6"
+source = "git+https://github.com/sdiehl/polycore.git?rev=421183e8158a718a0b16ad7e1f826c431925926a#421183e8158a718a0b16ad7e1f826c431925926a"
 dependencies = [
  "machine-prime",
  "num-bigint",
@@ -273,8 +273,8 @@ dependencies = [
 
 [[package]]
 name = "polyfactor"
-version = "0.1.5"
-source = "git+https://github.com/sdiehl/polycore.git?rev=34033c23b2bb9d89e7d4a4cdc0b46969cb475f3e#34033c23b2bb9d89e7d4a4cdc0b46969cb475f3e"
+version = "0.1.6"
+source = "git+https://github.com/sdiehl/polycore.git?rev=421183e8158a718a0b16ad7e1f826c431925926a#421183e8158a718a0b16ad7e1f826c431925926a"
 dependencies = [
  "num-bigint",
  "num-integer",

@@ -13,7 +13,7 @@ use polycore::{dense, Monomial, Order, Poly, Ring};
 use serde_yaml_ng::Value;
 
 use std::collections::BTreeMap;
-use std::fmt::{self, Write};
+use std::fmt;
 use zippel_lift::Fraction;
 
 type Q = BigRational;
@@ -35,8 +35,6 @@ fn error(s: impl Into<String>) -> FormatError {
 pub struct ImportedFamily {
     pub name: String,
     pub family: PolynomialFamily,
-    /// Original propagator = sign * the normalized internal propagator.
-    pub signs: Vec<i64>,
 }
 
 fn seq(v: &Value) -> Result<&[Value]> {
@@ -259,14 +257,14 @@ pub fn read_family_yaml(families: &str, kinematics: &str, name: &str) -> Result<
         if fixed == "d" || !family.vars.contains(&fixed) {
             return Err(error("invalid fixed invariant"));
         }
-        family = family.fix(&fixed, 1);
+        family = family
+            .fix(&fixed, 1)
+            .ok_or_else(|| error("invalid fixed invariant"))?;
     }
     validate(&family)?;
-    let signs = vec![1; family.propagators.len()];
     Ok(ImportedFamily {
         name: name.into(),
         family,
-        signs,
     })
 }
 
@@ -328,9 +326,6 @@ fn scalar_products(er: &Ring, vr: &Ring, rules: &[(String, String)]) -> Result<V
             })
             .collect();
         let x = dense::solve(&a, &b).map_err(|e| error(format!("scalar-product rules: {e}")))?;
-        if x.len() != pairs.len() {
-            return Err(error("incomplete scalar-product rules"));
-        }
         for (v, c) in values.iter_mut().zip(x) {
             v.push((Monomial::new(exps.clone()), c));
         }
@@ -555,7 +550,6 @@ pub fn read_family_mathematica(
     if lines >= 32 || lines == 0 || lines > propagators.len() {
         return Err(error("invalid line count"));
     }
-    let signs = vec![1; propagators.len()];
     let family = PolynomialFamily {
         vars,
         loops: loops.len(),
@@ -569,15 +563,62 @@ pub fn read_family_mathematica(
     Ok(ImportedFamily {
         name: name.into(),
         family,
-        signs,
     })
 }
 
+struct ExportRows {
+    indices: BTreeMap<usize, String>,
+    rows: Vec<(usize, Vec<(usize, String)>)>,
+}
+impl ExportRows {
+    fn new(system: &System, plan: &Plan, coefficients: &[Fraction]) -> Result<Self> {
+        if Some(coefficients.len()) != plan.targets.len().checked_mul(plan.masters.len()) {
+            return Err(error("coefficient dimensions"));
+        }
+        let ring = ring(system.vars.clone())?;
+        let mut indices = BTreeMap::new();
+        for &j in plan.targets.iter().chain(&plan.masters) {
+            let a = system
+                .integrals
+                .get(j)
+                .ok_or_else(|| error("integral index out of bounds"))?;
+            indices.insert(
+                j,
+                a.iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(","),
+            );
+        }
+        let mut rows = Vec::new();
+        for (i, &t) in plan.targets.iter().enumerate() {
+            let mut terms = Vec::new();
+            for (j, &m) in plan.masters.iter().enumerate() {
+                let c = &coefficients[i * plan.masters.len() + j];
+                if c.num.nvars != system.vars.len()
+                    || c.den.nvars != system.vars.len()
+                    || c.den.is_zero()
+                {
+                    return Err(error("invalid coefficient polynomial"));
+                }
+                if !c.num.is_zero() {
+                    terms.push((
+                        m,
+                        format!("({})/({})", ring.show(&c.num), ring.show(&c.den)),
+                    ));
+                }
+            }
+            rows.push((t, terms));
+        }
+        Ok(Self { indices, rows })
+    }
+}
+
 impl ImportedFamily {
-    /// Mathematica replacement rules, using the YAML format’s family head or the indexed format’s `G[id,{...}]`.
+    /// Mathematica replacement rules, with named or indexed integral heads.
     ///
     /// # Errors
-    /// Rejects incompatible coefficient dimensions or invalid variable names.
+    /// Rejects incompatible coefficients, integral indices, or variable names.
     pub fn rules(
         &self,
         system: &System,
@@ -585,65 +626,39 @@ impl ImportedFamily {
         coefficients: &[Fraction],
         family_id: Option<u32>,
     ) -> Result<String> {
-        if coefficients.len() != plan.targets.len() * plan.masters.len() {
-            return Err(error("coefficient dimensions"));
-        }
-        let r = ring(system.vars.clone())?;
-        let integral = |j: usize| {
-            let indices: Vec<_> = system.integrals[j]
-                .iter()
-                .map(ToString::to_string)
-                .collect();
+        let export = ExportRows::new(system, plan, coefficients)?;
+        let integral = |j: &usize| {
             family_id.map_or_else(
-                || format!("{}[{}]", self.name, indices.join(",")),
-                |id| format!("G[{id},{{{}}}]", indices.join(",")),
+                || format!("{}[{}]", self.name, export.indices[j]),
+                |id| format!("G[{id},{{{}}}]", export.indices[j]),
             )
         };
-        let sign = |j: usize| {
-            system.integrals[j]
-                .iter()
-                .zip(&self.signs)
-                .fold(1, |v, (&a, &s)| if a % 2 != 0 { v * s } else { v })
-        };
-        let mut out = String::from("{\n");
-        for (i, &t) in plan.targets.iter().enumerate() {
-            let mut terms = Vec::new();
-            for (j, &m) in plan.masters.iter().enumerate() {
-                let c = &coefficients[i * plan.masters.len() + j];
-                if c.num.is_zero() {
-                    continue;
-                }
-                let num = c.num.scale(&Q::from_integer((sign(t) * sign(m)).into()));
-                terms.push(format!(
-                    "({})/({})*{}",
-                    r.show(&num),
-                    r.show(&c.den),
-                    integral(m)
-                ));
-            }
-            writeln!(
-                out,
-                "{} -> {}{}",
-                integral(t),
-                if terms.is_empty() {
-                    "0".into()
-                } else {
-                    terms.join(" + ")
-                },
-                if i + 1 == plan.targets.len() { "" } else { "," }
-            )
-            .unwrap();
-        }
-        out.push('}');
-        Ok(out)
+        let rows = export
+            .rows
+            .iter()
+            .map(|(t, terms)| {
+                let rhs = terms
+                    .iter()
+                    .map(|(m, c)| format!("{c}*{}", integral(m)))
+                    .collect::<Vec<_>>();
+                format!(
+                    "{} -> {}",
+                    integral(t),
+                    if rhs.is_empty() {
+                        "0".into()
+                    } else {
+                        rhs.join(" + ")
+                    }
+                )
+            })
+            .collect::<Vec<_>>();
+        Ok(format!("{{\n{}\n}}", rows.join(",\n")))
     }
-}
 
-impl ImportedFamily {
-    /// Mathematica `.tables`: reduction entries plus an explicit integral-ID dictionary.
+    /// Reduction entries plus an integral-ID dictionary, in `.tables` syntax.
     ///
     /// # Errors
-    /// Rejects incompatible coefficient dimensions or invalid variable names.
+    /// Rejects incompatible coefficients, integral indices, or variable names.
     pub fn reduction_tables(
         &self,
         system: &System,
@@ -651,58 +666,34 @@ impl ImportedFamily {
         coefficients: &[Fraction],
         family_id: u32,
     ) -> Result<String> {
-        if coefficients.len() != plan.targets.len() * plan.masters.len() {
-            return Err(error("coefficient dimensions"));
-        }
-        let ring = ring(system.vars.clone())?;
-        let sign = |j: usize| {
-            system.integrals[j]
-                .iter()
-                .zip(&self.signs)
-                .fold(1, |v, (&a, &s)| if a % 2 != 0 { v * s } else { v })
-        };
-        let mut ids: Vec<_> = plan.targets.iter().chain(&plan.masters).copied().collect();
-        ids.sort_unstable();
-        ids.dedup();
-        let id = |j| ids.binary_search(&j).unwrap() + 1;
-        let mut entries = Vec::new();
-        for (i, &t) in plan.targets.iter().enumerate() {
-            let terms: Vec<_> = plan
-                .masters
-                .iter()
-                .enumerate()
-                .filter_map(|(j, &m)| {
-                    let c = &coefficients[i * plan.masters.len() + j];
-                    if c.num.is_zero() {
-                        return None;
-                    }
-                    let num = c.num.scale(&Q::from_integer((sign(t) * sign(m)).into()));
-                    Some(format!(
-                        "{{{},\"({})/({})\"}}",
-                        id(m),
-                        ring.show(&num),
-                        ring.show(&c.den)
-                    ))
-                })
-                .collect();
-            entries.push(format!("{{{},{{{}}}}}", id(t), terms.join(",")));
-        }
-        for &m in &plan.masters {
-            if !plan.targets.contains(&m) {
-                entries.push(format!("{{{},{{{{{},\"1\"}}}}}}", id(m), id(m)));
+        let export = ExportRows::new(system, plan, coefficients)?;
+        let ids: BTreeMap<_, _> = export
+            .indices
+            .keys()
+            .enumerate()
+            .map(|(i, &j)| (j, i + 1))
+            .collect();
+        let mut entries = export
+            .rows
+            .iter()
+            .map(|(t, terms)| {
+                let terms = terms
+                    .iter()
+                    .map(|(m, c)| format!("{{{},\"{c}\"}}", ids[m]))
+                    .collect::<Vec<_>>();
+                format!("{{{},{{{}}}}}", ids[t], terms.join(","))
+            })
+            .collect::<Vec<_>>();
+        for m in &plan.masters {
+            if !plan.targets.contains(m) {
+                entries.push(format!("{{{},{{{{{},\"1\"}}}}}}", ids[m], ids[m]));
             }
         }
-        let dictionary: Vec<_> = ids
+        let dictionary = export
+            .indices
             .iter()
-            .enumerate()
-            .map(|(i, &j)| {
-                let indices: Vec<_> = system.integrals[j]
-                    .iter()
-                    .map(ToString::to_string)
-                    .collect();
-                format!("{{{},{{{family_id},{{{}}}}}}}", i + 1, indices.join(","))
-            })
-            .collect();
+            .map(|(j, a)| format!("{{{},{{{family_id},{{{a}}}}}}}", ids[j]))
+            .collect::<Vec<_>>();
         Ok(format!(
             "{{\n{{{}}},\n{{{}}}\n}}\n",
             entries.join(",\n"),

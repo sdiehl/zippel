@@ -66,7 +66,7 @@ fn reads_upstream_massive_box_with_redundant_kinematic_rules() {
     .unwrap();
     assert_eq!(imported.family.vars, vec!["d", "s", "t"]);
     let system = imported.family.system(1, 1).unwrap();
-    let plan = system.learn(&[vec![2, 1, 1, 1]], 7);
+    let plan = system.learn(&[vec![2, 1, 1, 1]], 7).unwrap();
     let p = polycore::modp::Primes::new().next().unwrap();
     assert!(plan
         .replay(|e| system.row(e, &[13, 19, 23], p), p)
@@ -82,8 +82,8 @@ fn polynomial_backend_agrees_with_native_rows_and_reductions() {
     let a = imported.family.system(1, 1).unwrap();
     let b = native.system(1, 1);
     let targets = [vec![2, 1, 1, 1], vec![1, 2, 1, 1]];
-    let ap = a.learn(&targets, 17);
-    let bp = b.learn(&targets, 17);
+    let ap = a.learn(&targets, 17).unwrap();
+    let bp = b.learn(&targets, 17).unwrap();
     let mut rng = polycore::sample::Rng::new(27);
     for p in polycore::modp::Primes::new().take(3) {
         for _ in 0..6 {
@@ -121,7 +121,7 @@ fn polynomial_masses_fractional_momenta_sector_unions_and_cuts() {
         "Internal={k};External={q};Propagators={k^2-m^2,(k+q/2)^2-m^2};Replacements={q^2->s};";
     let imported = read_family_mathematica(src, "bubble", &["s", "m"], 2).unwrap();
     let system = imported.family.system(1, 1).unwrap();
-    let plan = system.learn(&[vec![2, 1]], 11);
+    let plan = system.learn(&[vec![2, 1]], 11).unwrap();
     let p = polycore::modp::Primes::new().next().unwrap();
     assert!(plan
         .replay(|e| system.row(e, &[13, 17, 19], p), p)
@@ -173,7 +173,7 @@ fn numeric_reference_and_table_roundtrip() {
     let imported = read_family_yaml(FAMILY, KIN, "box").unwrap();
     let system = imported.family.system(1, 1).unwrap();
     let target = vec![2, 1, 1, 1];
-    let plan = system.learn(std::slice::from_ref(&target), 7);
+    let plan = system.learn(std::slice::from_ref(&target), 7).unwrap();
     let p = 18_446_744_073_709_551_557;
     let x = [13, 1, 1];
     let values = plan.replay(|e| system.row(e, &x, p), p).unwrap();
@@ -212,7 +212,9 @@ fn imports_nonplanar_five_point_family_with_indexed_momenta() {
     let mut family = imported.family;
     family.cuts = (0..8).collect();
     let system = family.system(1, 1).unwrap();
-    let plan = system.learn(&[vec![2, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0]], 21);
+    let plan = system
+        .learn(&[vec![2, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0]], 21)
+        .unwrap();
     for p in polycore::modp::Primes::new().take(2) {
         assert!(plan
             .replay(|e| system.row(e, &[13, 17, 19, 23, 29, 31], p), p)
@@ -221,8 +223,8 @@ fn imports_nonplanar_five_point_family_with_indexed_momenta() {
 }
 
 #[test]
-fn doublebox_agrees_with_external_table_after_basis_conversion() {
-    use polycore::modp::{add, mul};
+fn doublebox_matches_reference_in_canonical_basis() {
+    use polycore::modp::add;
     use std::collections::BTreeMap;
     let imported = read_family_mathematica(
         include_str!("fixtures/doublebox.m"),
@@ -231,6 +233,9 @@ fn doublebox_agrees_with_external_table_after_basis_conversion() {
         7,
     )
     .unwrap();
+    let analysis = imported.family.analyze().unwrap();
+    assert!(analysis.symmetry_count() > 0);
+    assert!(!analysis.zero_sectors.is_empty());
     let table = zippel_laporta::formats::read_reduction_tables(include_str!(
         "fixtures/reference-doublebox-d13-s17-t19.tables"
     ))
@@ -240,30 +245,39 @@ fn doublebox_agrees_with_external_table_after_basis_conversion() {
         vec![2, 1, 1, 1, 1, 1, 1, 0, 0],
         vec![1, 2, 1, 1, 1, 1, 1, 0, 0],
     ];
-    let plan = system.learn(&targets, 7);
+    let plan = system.learn(&targets, 7).unwrap();
+    assert_eq!(plan.masters.len(), 6);
     let p = 18_446_744_073_709_551_557;
     let x = [13, 17, 19];
     let cs = plan.replay(|e| system.row(e, &x, p), p).unwrap();
-    for (i, target) in targets.iter().enumerate() {
-        let mut composed = BTreeMap::new();
-        for (j, &m) in plan.masters.iter().enumerate() {
-            let c = cs[i * plan.masters.len() + j];
-            if c == 0 {
-                continue;
-            }
-            for (master, v) in table
-                .evaluate(1, &system.integrals[m], &system.vars, &x, p)
-                .unwrap()
-            {
-                let entry = composed.entry(master).or_insert(0);
-                *entry = add(*entry, mul(c, v, p), p);
+    let canonicalize = |terms: Vec<(Vec<i32>, u64)>| {
+        let mut result = BTreeMap::new();
+        for (a, c) in terms {
+            if let Some(a) = analysis.canonical_index(&a) {
+                let entry = result.entry(a).or_insert(0);
+                *entry = add(*entry, c, p);
             }
         }
-        composed.retain(|_, c| *c != 0);
-        assert_eq!(
-            Some(composed),
-            table.evaluate(1, target, &system.vars, &x, p)
+        result.retain(|_, c| *c != 0);
+        result
+    };
+    for (i, target) in targets.iter().enumerate() {
+        let got = canonicalize(
+            plan.masters
+                .iter()
+                .enumerate()
+                .map(|(j, &m)| (system.integrals[m].clone(), cs[i * plan.masters.len() + j]))
+                .collect(),
         );
+        let reference = canonicalize(
+            table
+                .evaluate(1, target, &system.vars, &x, p)
+                .unwrap()
+                .into_iter()
+                .map(|((_, a), c)| (a, c))
+                .collect(),
+        );
+        assert_eq!(got, reference);
     }
 }
 
@@ -285,4 +299,69 @@ fn mapped_negative_momenta_preserve_square_sign() {
     .unwrap();
     assert_eq!(a.family.propagators, b.family.propagators);
     assert!(read_family_yaml(&FAMILY.replace("[15]", "[0]"), KIN, "box").is_err());
+}
+
+#[test]
+fn invalid_specialization_and_singular_learning_return_none() {
+    let family = read_family_yaml(FAMILY, KIN, "box").unwrap().family;
+    assert!(family.clone().fix("missing", 1).is_none());
+    assert!(family.clone().fix("d", 4).is_none());
+    let mut singular = family.clone();
+    singular.propagators[1] = singular.propagators[0].clone();
+    assert!(singular
+        .system(1, 1)
+        .unwrap()
+        .learn(&[vec![2, 1, 1, 1]], 7)
+        .is_none());
+    assert!(family
+        .system(1, 1)
+        .unwrap()
+        .learn(&[vec![99, 1, 1, 1]], 7)
+        .is_none());
+    let ring = polycore::Ring::new(["d", "s", "t"], polycore::Order::Lex);
+    assert!(family
+        .denominator_candidates()
+        .contains(&ring.parse("d-7/2").unwrap()));
+}
+
+#[test]
+fn detects_zero_sectors_and_preserves_massive_tadpoles() {
+    let massless = read_family_mathematica(
+        "Internal={k};External={q};Propagators={k^2,(k+q)^2};Replacements={q^2->s};",
+        "bubble",
+        &["s"],
+        2,
+    )
+    .unwrap()
+    .family;
+    let a = massless.analyze().unwrap();
+    assert!(a.zero_sectors.contains(&1));
+    assert!(a.zero_sectors.contains(&2));
+    assert!(!a.zero_sectors.contains(&3));
+    let system = massless.system(0, 0).unwrap();
+    let plan = system.learn(&[vec![1, 0]], 5).unwrap();
+    assert!(plan.masters.is_empty());
+    assert_eq!(
+        plan.replay(|e| system.row(e, &[13, 17], 101), 101),
+        Some(vec![])
+    );
+    let massive = read_family_mathematica(
+        "Internal={k};External={q};Propagators={k^2-m,(k+q)^2-m};Replacements={q^2->s};",
+        "bubble",
+        &["s", "m"],
+        2,
+    )
+    .unwrap()
+    .family;
+    let a = massive.analyze().unwrap();
+    assert!(a.zero_sectors.is_empty());
+    assert_eq!(a.canonical_index(&[1, 0]), a.canonical_index(&[0, 1]));
+    let system = massive.system(1, 1).unwrap();
+    let plan = system.learn(&[vec![1, 0], vec![0, 1]], 17).unwrap();
+    assert_eq!(plan.masters.len(), 1);
+    let p = polycore::modp::Primes::new().next().unwrap();
+    assert_eq!(
+        plan.replay(|e| system.row(e, &[13, 17, 19], p), p),
+        Some(vec![1, 1])
+    );
 }

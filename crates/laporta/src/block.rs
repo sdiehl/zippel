@@ -6,7 +6,7 @@
 //! pivot structure. Every candidate is checked on independent probes. This is a
 //! bounded Monte Carlo learner with adaptive blocks, degree weights, and intermediates.
 
-use polycore::modp::{add, mul};
+use polycore::modp::{add, mul, sub, try_inv};
 use polycore::modp_echelon::{Echelon, Row};
 use polycore::sample::{hash, point};
 use polycore::Lead;
@@ -47,6 +47,7 @@ struct Shape {
 #[derive(Clone, Debug)]
 pub struct BlockPlan {
     n: usize,
+    target_order: Vec<usize>,
     targets: usize,
     masters: usize,
     blocks: Vec<Shape>,
@@ -67,6 +68,7 @@ pub struct BlockForm {
     targets: usize,
     masters: usize,
     p: u64,
+    degrees: Vec<usize>,
     blocks: Vec<Block>,
 }
 
@@ -112,20 +114,30 @@ impl Samples<'_> {
 }
 
 impl BlockPlan {
-    /// Learn reductions of `targets` integrals in increasing complexity order.
+    /// Integral IDs in oracle/output order, strictly increasing by complexity.
+    pub fn targets(&self) -> &[usize] {
+        &self.target_order
+    }
+    /// Learn reductions of integral IDs in strictly increasing complexity order.
     ///
-    /// The oracle returns `targets * masters` coefficients, target-major. The caller
+    /// The oracle returns `targets.len() * masters` coefficients, target-major. The caller
     /// must use one stable master basis at every sample and prime. `None` means the
     /// budgets/degree bound were insufficient, or samples/pivots were unlucky.
     pub fn learn(
         oracle: impl Fn(&[u64], u64) -> Option<Vec<u64>>,
         n: usize,
-        targets: usize,
+        targets: &[usize],
         masters: usize,
         p: u64,
         seed: u64,
         search: Search,
     ) -> Option<(Self, BlockForm)> {
+        if targets.windows(2).any(|w| w[0] >= w[1]) {
+            return None;
+        }
+        let target_order = targets.to_vec();
+        let targets = targets.len();
+
         if search.block_size == 0 || targets == 0 || masters == 0 || n == 0 {
             return None;
         }
@@ -196,10 +208,12 @@ impl BlockPlan {
             targets,
             masters,
             p,
+            degrees: degree_bounds(&blocks, n),
             blocks,
         };
         let plan = Self {
             n,
+            target_order,
             targets,
             masters,
             blocks: shapes,
@@ -256,6 +270,7 @@ impl BlockPlan {
             targets: self.targets,
             masters: self.masters,
             p,
+            degrees: degree_bounds(&blocks, self.n),
             blocks,
         })
     }
@@ -274,43 +289,104 @@ impl BlockForm {
             .sum()
     }
 
-    /// All target reductions. A singular block is a rejected probe (`None`).
+    pub const fn prime(&self) -> u64 {
+        self.p
+    }
+
+    /// All target reductions. Powers and elimination scratch are shared by all blocks.
+    /// A singular block is a rejected probe (`None`).
     pub fn eval(&self, x: &[u64]) -> Option<Vec<u64>> {
         if x.len() != self.n || x.iter().any(|&v| v >= self.p) {
             return None;
         }
+        let powers = polycore::evaluation::power_table(x, &self.degrees, self.p);
+        let evaluate = |g: &ModPoly| {
+            g.terms.iter().fold(0, |sum, (e, c)| {
+                let v = e
+                    .iter()
+                    .zip(&powers)
+                    .fold(*c, |v, (&d, powers)| mul(v, powers[d as usize], self.p));
+                add(sum, v, self.p)
+            })
+        };
         let mut values = vec![vec![0; self.masters]; self.masters + self.targets];
         for (i, row) in values.iter_mut().take(self.masters).enumerate() {
             row[i] = 1;
         }
+        let max = self
+            .blocks
+            .iter()
+            .map(|b| b.end - b.start)
+            .max()
+            .unwrap_or(0);
+        let mut scratch = vec![0; max * (max + self.masters)];
         for block in &self.blocks {
-            let mut e = Echelon::new(Lead::High, self.p);
-            for relation in &block.relations {
-                let row: Row = relation
+            let size = block.end - block.start;
+            let width = size + self.masters;
+            scratch.fill(0);
+            for (i, relation) in block.relations.iter().enumerate() {
+                for (j, g) in relation
                     .iter()
                     .enumerate()
-                    .map(|(i, g)| (i, g.eval(x, self.p)))
-                    .collect();
-                let pivot = e.insert(&row)?;
-                if pivot < self.masters + block.start || pivot >= self.masters + block.end {
-                    return None;
+                    .filter(|(_, g)| !g.terms.is_empty())
+                {
+                    let c = evaluate(g);
+                    if j >= self.masters + block.start {
+                        scratch[i * width + j - self.masters - block.start] = c;
+                    } else {
+                        for (k, &v) in values[j].iter().enumerate() {
+                            let at = i * width + size + k;
+                            scratch[at] = sub(scratch[at], mul(c, v, self.p), self.p);
+                        }
+                    }
                 }
             }
-            for t in block.start..block.end {
-                let mut value = vec![0; self.masters];
-                for (j, c) in e.solve(self.masters + t).0 {
-                    if j >= self.masters + block.start {
-                        return None;
-                    }
-                    for (out, &v) in value.iter_mut().zip(&values[j]) {
-                        *out = add(*out, mul(c, v, self.p), self.p);
+            for k in 0..size {
+                let pivot = (k..size).find(|&i| scratch[i * width + k] != 0)?;
+                for j in 0..width {
+                    scratch.swap(k * width + j, pivot * width + j);
+                }
+                let inverse = try_inv(scratch[k * width + k], self.p)?;
+                for j in k..width {
+                    scratch[k * width + j] = mul(scratch[k * width + j], inverse, self.p);
+                }
+                for i in 0..size {
+                    if i != k {
+                        let c = scratch[i * width + k];
+                        if c != 0 {
+                            for j in k..width {
+                                scratch[i * width + j] = sub(
+                                    scratch[i * width + j],
+                                    mul(c, scratch[k * width + j], self.p),
+                                    self.p,
+                                );
+                            }
+                        }
                     }
                 }
-                values[self.masters + t] = value;
+            }
+            for i in 0..size {
+                values[self.masters + block.start + i]
+                    .copy_from_slice(&scratch[i * width + size..(i + 1) * width]);
             }
         }
         Some(values.into_iter().skip(self.masters).flatten().collect())
     }
+}
+
+fn degree_bounds(blocks: &[Block], n: usize) -> Vec<usize> {
+    let mut degrees = vec![0; n];
+    for (e, _) in blocks
+        .iter()
+        .flat_map(|b| &b.relations)
+        .flatten()
+        .flat_map(|g| &g.terms)
+    {
+        for (d, &v) in degrees.iter_mut().zip(e) {
+            *d = (*d).max(v as usize);
+        }
+    }
+    degrees
 }
 
 fn monomials(n: usize, degree: u32, limit: usize) -> Option<Vec<Exps>> {
@@ -390,18 +466,16 @@ fn relations(
         if e.rank() == unknowns {
             return None;
         }
+        stable = if e.rank() == before { stable + 1 } else { 0 };
         if let Some(pivots) = expected {
-            if e.rank() > pivots.len() {
+            if stable >= 3 || e.rank() > pivots.len() {
                 return None;
             }
             if e.rank() == pivots.len() {
                 return Some((e.clone(), e.nullspace(unknowns)));
             }
-        } else {
-            stable = if e.rank() == before { stable + 1 } else { 0 };
-            if stable == 3 {
-                return Some((e.clone(), e.nullspace(unknowns)));
-            }
+        } else if stable == 3 {
+            return Some((e.clone(), e.nullspace(unknowns)));
         }
     }
     None
@@ -500,7 +574,7 @@ fn validate_slice(
 pub fn lift(
     oracle: impl Fn(&[u64], u64) -> Option<Vec<u64>> + Sync,
     n: usize,
-    targets: usize,
+    targets: &[usize],
     masters: usize,
     seed: u64,
     search: Search,
@@ -571,12 +645,18 @@ impl BlockPlan {
     pub fn learn_adaptive(
         oracle: impl Fn(&[u64], u64) -> Option<Vec<u64>>,
         n: usize,
-        targets: usize,
+        targets: &[usize],
         masters: usize,
         p: u64,
         seed: u64,
         search: &AdaptiveSearch,
     ) -> Option<(Self, BlockForm, SearchReport)> {
+        if targets.windows(2).any(|w| w[0] >= w[1]) {
+            return None;
+        }
+        let target_order = targets.to_vec();
+        let targets = targets.len();
+
         if n == 0
             || targets == 0
             || masters == 0
@@ -639,6 +719,7 @@ impl BlockPlan {
         Some((
             Self {
                 n,
+                target_order,
                 targets,
                 masters,
                 blocks: shapes,
@@ -649,6 +730,7 @@ impl BlockPlan {
                 targets,
                 masters,
                 p,
+                degrees: degree_bounds(&blocks, n),
                 blocks,
             },
             report,
@@ -912,7 +994,11 @@ impl Reduction {
             .flat_map(|&i| all[i * m..(i + 1) * m].iter().copied())
             .collect()
     }
-    pub fn eval(&self, x: &[u64]) -> Option<Vec<u64>> {
+    /// Evaluate the learned form only at its explicit prime; refit for other primes.
+    pub fn eval(&self, x: &[u64], p: u64) -> Option<Vec<u64>> {
+        if p != self.first.p {
+            return None;
+        }
         Some(self.select(&self.first.eval(x)?))
     }
     pub fn fit(&self, system: &crate::ibp::System, p: u64, seed: u64) -> Option<BlockForm> {
@@ -984,7 +1070,7 @@ impl crate::ibp::System {
             .iter()
             .map(|&j| self.integrals[j].clone())
             .collect::<Vec<_>>();
-        let oracle_plan = self.learn(&indices, seed);
+        let oracle_plan = self.learn(&indices, seed)?;
         let output = plan
             .targets
             .iter()
@@ -993,7 +1079,7 @@ impl crate::ibp::System {
         let (blocks, first, report) = BlockPlan::learn_adaptive(
             |x, p| oracle_plan.replay(|e| self.row(e, x, p), p),
             self.vars.len(),
-            targets.len(),
+            &targets,
             oracle_plan.masters.len(),
             p,
             seed,

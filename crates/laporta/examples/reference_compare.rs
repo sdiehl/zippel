@@ -42,8 +42,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         src.replace("-k^2", "k^2").replace("-(k+", "(k+")
     };
     let imported = read_family_mathematica(&src, "reference", &["s", "t"], lines)?;
+    let analysis = imported.family.analyze().ok_or("invalid family")?;
     let system = imported.family.system(1, 1).ok_or("invalid family")?;
-    let plan = system.learn(&targets, 7);
+    let plan = system.learn(&targets, 7).unwrap();
     eprintln!(
         "{} equations, {} retained, {} masters",
         system.len(),
@@ -73,7 +74,23 @@ fn main() -> Result<(), Box<dyn Error>> {
         format!("{{{}}}", integrals.join(",")),
     )?;
     let config = folder.join("reference");
-    fs::write(config.with_extension("config"),format!("#threads 1\n#fthreads 1\n#variables {}\n#database {}\n#start\n#folder {}/\n#problem 1 {}\n#integrals {}\n#output {}\n",if double {"d,s,t"}else{"d"},folder.join("db").display(),root.display(),start,folder.join("targets.m").display(),folder.join("result.tables").display()))?;
+    let variables = if double { "d,s,t" } else { "d" };
+    let database = folder.join("db");
+    let input = folder.join("targets.m");
+    let output = folder.join("result.tables");
+    let configuration = format!(
+        concat!(
+            "#threads 1\n#fthreads 1\n#variables {}\n#database {}\n",
+            "#start\n#folder {}/\n#problem 1 {}\n#integrals {}\n#output {}\n",
+        ),
+        variables,
+        database.display(),
+        root.display(),
+        start,
+        input.display(),
+        output.display(),
+    );
+    fs::write(config.with_extension("config"), configuration)?;
     for (index, p) in [
         (1, 18_446_744_073_709_551_557),
         (2, 18_446_744_073_709_551_533),
@@ -133,6 +150,19 @@ fn main() -> Result<(), Box<dyn Error>> {
             let reference = table
                 .evaluate(1, target, &system.vars, &x, p)
                 .ok_or("missing target reduction")?;
+            let canonicalize = |terms: BTreeMap<(u32, Vec<i32>), u64>| {
+                let mut result = BTreeMap::new();
+                for ((family, a), c) in terms {
+                    if let Some(a) = analysis.canonical_index(&a) {
+                        let value = result.entry((family, a)).or_insert(0);
+                        *value = add(*value, c, p);
+                    }
+                }
+                result.retain(|_, c| *c != 0);
+                result
+            };
+            let composed = canonicalize(composed);
+            let reference = canonicalize(reference);
             if composed != reference {
                 return Err(format!(
                     "mismatch for {target:?} at prime {p}: {composed:?} versus {reference:?}"
@@ -140,7 +170,12 @@ fn main() -> Result<(), Box<dyn Error>> {
                 .into());
             }
         }
-        println!("prime {p}: {} targets agree; Reference process {reference_time:?}, learned replay {replay_time:?}",targets.len());
+        println!(
+            "prime {p}: {} targets agree; reference process {:?}, learned replay {:?}",
+            targets.len(),
+            reference_time,
+            replay_time
+        );
     }
     println!(
         "Inputs, tables, and logs: {}",

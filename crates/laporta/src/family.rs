@@ -16,6 +16,9 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::{Arc, Mutex};
 use zippel_interp::ModPoly;
 
+mod analysis;
+pub use analysis::FamilyAnalysis;
+
 type Q = BigRational;
 type SampleValue = Arc<Option<Vec<u64>>>;
 
@@ -111,6 +114,10 @@ impl PolynomialFamily {
         if !self.valid() || dots < 0 || numerators < 0 {
             return None;
         }
+        let analysis = self.analyze().unwrap_or_default();
+        let mut family = self.clone();
+        family.zero_sectors.extend(&analysis.zero_sectors);
+        let allowed = |a: &[i32]| family.allowed(a);
         let n = self.nprops();
         let nm = self.loops + self.products.len();
         let pairs: Vec<_> = (0..self.loops)
@@ -145,6 +152,7 @@ impl PolynomialFamily {
             }
         }
         let mut raw = Vec::new();
+        let mut zeros = Vec::new();
         let mut seeds = BTreeSet::new();
         let mut seen = BTreeSet::new();
         for sector in sectors {
@@ -158,7 +166,12 @@ impl PolynomialFamily {
                     for (&i, &v) in off.iter().zip(&down) {
                         a[i] = -v;
                     }
-                    if !self.allowed(&a) {
+                    if !allowed(&a) {
+                        if self.allowed(&a) {
+                            seen.insert(a.clone());
+                            seeds.insert(a.clone());
+                            zeros.push(a);
+                        }
                         continue;
                     }
                     seeds.insert(a.clone());
@@ -180,7 +193,7 @@ impl PolynomialFamily {
                                     if k < n {
                                         shifted[k] -= 1;
                                     }
-                                    if self.allowed(&shifted) {
+                                    if allowed(&shifted) {
                                         seen.insert(shifted.clone());
                                         terms.push((
                                             shifted,
@@ -195,6 +208,15 @@ impl PolynomialFamily {
                             }
                         }
                     }
+                }
+            }
+        }
+        let mut symmetry_rows = Vec::new();
+        for a in seen.clone() {
+            for b in analysis.images(&a) {
+                if allowed(&b) {
+                    seen.insert(b.clone());
+                    symmetry_rows.push((a.clone(), b));
                 }
             }
         }
@@ -225,12 +247,17 @@ impl PolynomialFamily {
             prime: Mutex::default(),
             samples: Mutex::default(),
         };
+        let mut eqs = symmetry_rows
+            .into_iter()
+            .map(|(a, b)| vec![(columns[&a], vec![1]), (columns[&b], vec![-1])])
+            .collect::<Vec<_>>();
+        eqs.extend(zeros.into_iter().map(|a| vec![(columns[&a], vec![1])]));
         Some(System {
             integrals,
             vars: self.vars.clone(),
             seeds,
             columns,
-            eqs: vec![],
+            eqs,
             numeric: Some(numeric),
         })
     }
@@ -354,13 +381,11 @@ impl NumericRows {
 
 impl PolynomialFamily {
     #[must_use]
-    pub fn fix(mut self, name: &str, value: i64) -> Self {
-        let k = self
-            .vars
-            .iter()
-            .position(|v| v == name)
-            .expect("family variable");
-        assert!(k > 0, "d stays symbolic");
+    pub fn fix(mut self, name: &str, value: i64) -> Option<Self> {
+        let k = self.vars.iter().position(|v| v == name)?;
+        if k == 0 || !self.valid() {
+            return None;
+        }
         let remove = |g: &Poly<Q>, k| {
             let g = g.eval_var(k, &Q::from_integer(value.into()));
             Poly::new(
@@ -384,7 +409,7 @@ impl PolynomialFamily {
             .map(|r| r.iter().map(|g| remove(g, k)).collect())
             .collect();
         self.vars.remove(k);
-        self
+        Some(self)
     }
     /// Reject a dependent scalar-product coordinate system at several primes/points.
     pub fn independent(&self) -> bool {
@@ -431,7 +456,7 @@ impl PolynomialFamily {
         if targets.iter().any(|t| !system.integrals.contains(t)) {
             return None;
         }
-        let plan = system.learn(targets, 1);
+        let plan = system.learn(targets, 1)?;
         let cs = system.lift(&plan, 1)?;
         Some((system, plan, cs))
     }
@@ -460,8 +485,16 @@ impl PolynomialFamily {
             }
         };
         let d = Poly::var(0, n, Order::Lex);
-        for k in -2..=8 {
-            insert(&d - &Poly::constant(Q::from_integer(k.into()), n, Order::Lex));
+        for denominator in 1..=2 {
+            for numerator in -2 * denominator..=8 * denominator {
+                insert(
+                    &d - &Poly::constant(
+                        Q::new(numerator.into(), denominator.into()),
+                        n,
+                        Order::Lex,
+                    ),
+                );
+            }
         }
         for i in 1..n {
             let a = Poly::var(i, n, Order::Lex);

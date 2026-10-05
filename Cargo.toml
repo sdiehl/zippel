@@ -13,14 +13,14 @@ repository = "https://github.com/sdiehl/zippel"
 rust-version = "1.88"
 
 [workspace.dependencies]
-groebner = { git = "https://github.com/sdiehl/groebner.git", rev = "a23ad57ec139f997a7e97ccdeefe290cf572abc7", default-features = false }
+groebner = { version = "0.5.1", git = "https://github.com/sdiehl/groebner.git", rev = "a23ad57ec139f997a7e97ccdeefe290cf572abc7", default-features = false }
 insta = { version = "1.41", features = ["glob"] }
 num-bigint = "0.4"
 num-integer = "0.1"
 num-rational = "0.4"
 num-traits = "0.2"
-polycore = { git = "https://github.com/sdiehl/polycore.git", rev = "34033c23b2bb9d89e7d4a4cdc0b46969cb475f3e" }
-polyfactor = { git = "https://github.com/sdiehl/polycore.git", rev = "34033c23b2bb9d89e7d4a4cdc0b46969cb475f3e" }
+polycore = { version = "0.1.6", git = "https://github.com/sdiehl/polycore.git", rev = "421183e8158a718a0b16ad7e1f826c431925926a" }
+polyfactor = { version = "0.1.6", git = "https://github.com/sdiehl/polycore.git", rev = "421183e8158a718a0b16ad7e1f826c431925926a" }
 rayon = "1.10"
 zippel-interp = { path = "crates/interp", version = "0.3.0", default-features = false }
 zippel-lift = { path = "crates/lift", version = "0.3.0", default-features = false }
@@ -38,5 +38,5 @@ nursery = { level = "warn", priority = -1 }
 cargo = { level = "warn", priority = -1 }
 
 [patch.crates-io]
-polycore = { git = "https://github.com/sdiehl/polycore.git", rev = "34033c23b2bb9d89e7d4a4cdc0b46969cb475f3e" }
-groebner = { git = "https://github.com/sdiehl/groebner.git", rev = "a23ad57ec139f997a7e97ccdeefe290cf572abc7" }
+polycore = { version = "0.1.6", git = "https://github.com/sdiehl/polycore.git", rev = "421183e8158a718a0b16ad7e1f826c431925926a" }
+groebner = { version = "0.5.1", git = "https://github.com/sdiehl/groebner.git", rev = "a23ad57ec139f997a7e97ccdeefe290cf572abc7" }

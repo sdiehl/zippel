@@ -21,8 +21,8 @@ pub mod ibp;
 #[doc = include_str!("../../../README.md")]
 struct ReadmeDoctests;
 
-use polycore::modp::{add, inv, mul, sub};
-use std::collections::{BTreeMap, BTreeSet, BinaryHeap};
+use polycore::{modp_echelon::Echelon, Lead};
+use std::collections::{BTreeMap, BTreeSet};
 
 /// A sparse equation `sum c_j * u_j = 0` as `(j, c_j)` pairs.
 pub type Row = Vec<(usize, u64)>;
@@ -45,24 +45,24 @@ impl Plan {
             cols.sort_unstable_by(|a, b| b.cmp(a));
             (cols.first().copied(), cols.len(), cols)
         });
-        let mut ech = Echelon::default();
+        let mut ech = Echelon::recording(Lead::High, p);
         let mut origin = BTreeMap::new();
         for (k, &i) in order.iter().enumerate() {
-            if let Some(c) = ech.insert(&rows[i], p) {
+            if let Some(c) = ech.insert(&rows[i]) {
                 origin.insert(c, (k, i));
             }
         }
         let mut masters = BTreeSet::new();
         let mut stack = Vec::new();
         for &t in targets {
-            let (solution, used) = ech.solve(t, p);
+            let (solution, used) = ech.solve(t);
             masters.extend(solution.iter().map(|m| m.0));
             stack.extend(used);
         }
         let mut needed = BTreeSet::new();
         while let Some(c) = stack.pop() {
             if needed.insert(c) {
-                stack.extend(&ech.uses[c]);
+                stack.extend(ech.uses(c));
             }
         }
         let kept: BTreeMap<(usize, usize), usize> =
@@ -87,9 +87,9 @@ impl Plan {
     /// The coefficient of every master in every target, targets major, from only the kept
     /// equations `row(i)`. `None` if a pivot vanished at this sample.
     pub fn replay(&self, row: impl Fn(usize) -> Row, p: u64) -> Option<Vec<u64>> {
-        let mut ech = Echelon::default();
+        let mut ech = Echelon::new(Lead::High, p);
         for (&i, &c) in self.eqs.iter().zip(&self.pivots) {
-            if ech.insert(&row(i), p)? != c {
+            if ech.insert(&row(i))? != c {
                 return None;
             }
         }
@@ -99,95 +99,10 @@ impl Plan {
             .iter()
             .zip(out.chunks_mut(self.masters.len().max(1)))
         {
-            for (m, v) in ech.solve(t, p).0 {
+            for (m, v) in ech.solve(t).0 {
                 chunk[self.masters.binary_search(&m).ok()?] = v;
             }
         }
         Some(out)
-    }
-}
-
-/// Monic rows by leading column, the pivots each was reduced by, and a dense scratch row.
-#[derive(Debug, Default)]
-struct Echelon {
-    rows: Vec<Option<Row>>,
-    uses: Vec<Vec<usize>>,
-    acc: Vec<u64>,
-    live: Vec<bool>,
-}
-
-impl Echelon {
-    fn grow(&mut self, c: usize) {
-        if c >= self.acc.len() {
-            self.rows.resize(c + 1, None);
-            self.uses.resize(c + 1, Vec::new());
-            self.acc.resize(c + 1, 0);
-            self.live.resize(c + 1, false);
-        }
-    }
-
-    /// Reduces `row` column by column from the top: by every pivot if `full`, else only until
-    /// the leading column has none. The remaining terms, descending, and the pivots used.
-    fn reduce(&mut self, row: &[(usize, u64)], full: bool, p: u64) -> (Row, Vec<usize>) {
-        let mut heap = BinaryHeap::new();
-        for &(c, v) in row {
-            self.grow(c);
-            self.acc[c] = add(self.acc[c], v, p);
-            if !self.live[c] {
-                self.live[c] = true;
-                heap.push(c);
-            }
-        }
-        let Self {
-            rows, acc, live, ..
-        } = self;
-        let (mut out, mut used) = (Row::new(), Vec::new());
-        while let Some(c) = heap.pop() {
-            live[c] = false;
-            let v = std::mem::take(&mut acc[c]);
-            match &rows[c] {
-                _ if v == 0 => {}
-                Some(pivot) if full || out.is_empty() => {
-                    used.push(c);
-                    for &(k, x) in &pivot[1..] {
-                        acc[k] = sub(acc[k], mul(v, x, p), p);
-                        if !live[k] {
-                            live[k] = true;
-                            heap.push(k);
-                        }
-                    }
-                }
-                _ => out.push((c, v)),
-            }
-        }
-        (out, used)
-    }
-
-    /// Reduces `row` until its leading column has no pivot and makes it one. `None` if the row
-    /// vanished, being a consequence of the rows before it.
-    fn insert(&mut self, row: &[(usize, u64)], p: u64) -> Option<usize> {
-        let (mut r, used) = self.reduce(row, false, p);
-        let (c, v) = *r.first()?;
-        let l = inv(v, p);
-        for t in &mut r {
-            t.1 = mul(t.1, l, p);
-        }
-        self.rows[c] = Some(r);
-        self.uses[c] = used;
-        Some(c)
-    }
-
-    /// Column `t` as a combination of columns without a pivot, the masters, and the pivots used.
-    fn solve(&mut self, t: usize, p: u64) -> (Row, Vec<usize>) {
-        self.grow(t);
-        let Some(row) = self.rows[t].clone() else {
-            return (vec![(t, 1)], Vec::new());
-        };
-        let (mut r, mut used) = self.reduce(&row[1..], true, p);
-        for m in &mut r {
-            m.1 = sub(0, m.1, p);
-        }
-        used.push(t);
-        (r, used)
     }
 }
