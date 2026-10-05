@@ -235,7 +235,7 @@ fn doublebox_matches_reference_in_canonical_basis() {
     .unwrap();
     let analysis = imported.family.analyze().unwrap();
     assert!(analysis.symmetry_count() > 0);
-    assert!(!analysis.zero_sectors.is_empty());
+    assert_ne!(analysis.zero_sectors, [] as [u32; 0]);
     let table = zippel_laporta::formats::read_reduction_tables(include_str!(
         "fixtures/reference-doublebox-d13-s17-t19.tables"
     ))
@@ -340,7 +340,7 @@ fn detects_zero_sectors_and_preserves_massive_tadpoles() {
     assert!(!a.zero_sectors.contains(&3));
     let system = massless.system(0, 0).unwrap();
     let plan = system.learn(&[vec![1, 0]], 5).unwrap();
-    assert!(plan.masters.is_empty());
+    assert_eq!(plan.masters, [] as [usize; 0]);
     assert_eq!(
         plan.replay(|e| system.row(e, &[13, 17], 101), 101),
         Some(vec![])
@@ -354,7 +354,7 @@ fn detects_zero_sectors_and_preserves_massive_tadpoles() {
     .unwrap()
     .family;
     let a = massive.analyze().unwrap();
-    assert!(a.zero_sectors.is_empty());
+    assert_eq!(a.zero_sectors, [] as [u32; 0]);
     assert_eq!(a.canonical_index(&[1, 0]), a.canonical_index(&[0, 1]));
     let system = massive.system(1, 1).unwrap();
     let plan = system.learn(&[vec![1, 0], vec![0, 1]], 17).unwrap();
