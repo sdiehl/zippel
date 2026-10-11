@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 (2026-10-11)
 
 - Share the residue echelon between Laporta and block discovery.
 - Detect scaleless sectors and exact parametric symmetries.

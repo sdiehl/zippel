@@ -3,7 +3,7 @@ members = ["crates/*"]
 resolver = "2"
 
 [workspace.package]
-version = "0.3.0"
+version = "0.4.0"
 authors = ["Stephen Diehl <stephen.m.diehl@gmail.com>"]
 categories = ["algorithms", "mathematics"]
 edition = "2021"
@@ -22,8 +22,8 @@ num-traits = "0.2"
 polycore = { version = "0.1.6", git = "https://github.com/sdiehl/polycore.git", rev = "421183e8158a718a0b16ad7e1f826c431925926a" }
 polyfactor = { version = "0.1.6", git = "https://github.com/sdiehl/polycore.git", rev = "421183e8158a718a0b16ad7e1f826c431925926a" }
 rayon = "1.10"
-zippel-interp = { path = "crates/interp", version = "0.3.0", default-features = false }
-zippel-lift = { path = "crates/lift", version = "0.3.0", default-features = false }
+zippel-interp = { path = "crates/interp", version = "0.4.0", default-features = false }
+zippel-lift = { path = "crates/lift", version = "0.4.0", default-features = false }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
