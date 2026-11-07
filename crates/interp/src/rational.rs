@@ -12,7 +12,8 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 use crate::poly::{dense, Dense, ModPoly};
-use crate::zippel::interpolate;
+use crate::recovery::{RecoveryError, RecoveryOptions, RecoveryReport, Tracked};
+use crate::zippel::interpolate_impl;
 use polycore::interp::Thiele;
 use polycore::modp::{add, inv, mul, sub};
 use polycore::sample::{hash, point, BlackBox};
@@ -29,10 +30,39 @@ pub struct RatFunc {
 type Ray = Option<(Dense, Dense)>;
 
 /// The rational function in `n` variables behind `f`, in lowest terms with the leading
-/// coefficient of the denominator 1. Monte Carlo, like [`interpolate`].
+/// coefficient of the denominator 1. Monte Carlo, like [`crate::interpolate`].
 pub fn reconstruct(f: &(impl BlackBox + Sync), n: usize, p: u64, seed: u64) -> Option<RatFunc> {
-    (0..3).find_map(|attempt| {
-        let seed = hash(&[seed, attempt]);
+    reconstruct_impl(f, n, p, seed, &RecoveryOptions::default(), &mut 0)
+}
+
+/// Reconstruct with configurable limits, counting actual oracle calls across all rays.
+///
+/// # Errors
+/// Returns the failure category and work counters when reconstruction does not succeed.
+pub fn reconstruct_with_options(
+    f: &(impl BlackBox + Sync),
+    n: usize,
+    p: u64,
+    seed: u64,
+    options: &RecoveryOptions,
+) -> Result<(RatFunc, RecoveryReport), RecoveryError> {
+    let tracked = Tracked::new(f, options.max_probes);
+    let mut attempts = 0;
+    let value = reconstruct_impl(&tracked, n, p, seed, options, &mut attempts);
+    tracked.finish(value, attempts)
+}
+
+fn reconstruct_impl(
+    f: &(impl BlackBox + Sync),
+    n: usize,
+    p: u64,
+    seed: u64,
+    options: &RecoveryOptions,
+    attempts: &mut usize,
+) -> Option<RatFunc> {
+    (0..options.max_attempts).find_map(|attempt| {
+        *attempts += 1;
+        let seed = hash(&[seed, attempt as u64]);
         let r = if n == 0 {
             let c = f.eval(&[], p)?;
             RatFunc {
@@ -40,7 +70,7 @@ pub fn reconstruct(f: &(impl BlackBox + Sync), n: usize, p: u64, seed: u64) -> O
                 den: constant(0, 1),
             }
         } else {
-            Shifted::new(f, n, p, seed).reconstruct()?
+            Shifted::new(f, n, p, seed, *options).reconstruct()?
         };
         let x: Vec<u64> = (0..n as u64).map(|i| point(&[seed, 4, i], p)).collect();
         let y = f.eval(&x, p)?;
@@ -55,10 +85,11 @@ struct Shifted<'a, F> {
     seed: u64,
     s: Vec<u64>,
     rays: Mutex<HashMap<Vec<u64>, Ray>>,
+    options: RecoveryOptions,
 }
 
 impl<F: BlackBox + Sync> Shifted<'_, F> {
-    fn new(f: &F, n: usize, p: u64, seed: u64) -> Shifted<'_, F> {
+    fn new(f: &F, n: usize, p: u64, seed: u64, options: RecoveryOptions) -> Shifted<'_, F> {
         let s = (0..n as u64).map(|i| point(&[seed, 0, i], p)).collect();
         Shifted {
             f,
@@ -67,6 +98,7 @@ impl<F: BlackBox + Sync> Shifted<'_, F> {
             seed,
             s,
             rays: Mutex::default(),
+            options,
         }
     }
 
@@ -94,7 +126,7 @@ impl<F: BlackBox + Sync> Shifted<'_, F> {
         let z = ray_dir(y);
         let mut x = vec![0; self.n];
         let p = self.p;
-        let ray = thiele(
+        let ray = thiele_with_limit(
             |t| {
                 for ((xi, &zi), &si) in x.iter_mut().zip(&z).zip(&self.s) {
                     *xi = add(mul(t, zi, p), si, p);
@@ -103,6 +135,7 @@ impl<F: BlackBox + Sync> Shifted<'_, F> {
             },
             p,
             hash(&[self.seed, 2]),
+            self.options.max_points,
         )
         .and_then(|(num, den)| {
             let l = den.0.first()?.try_inverse()?;
@@ -125,7 +158,14 @@ impl<F: BlackBox + Sync> Shifted<'_, F> {
                 let at = |d: &Dense| d.0.get(r).map_or(0, |c| c.residue_mod(p));
                 Some(sub(at(pick(&ray)), at(&spill), p))
             };
-            let h = interpolate(&part, self.n - 1, self.p, hash(&[self.seed, 3]))?;
+            let h = interpolate_impl(
+                &part,
+                self.n - 1,
+                self.p,
+                hash(&[self.seed, 3]),
+                &self.options,
+                &mut 0,
+            )?;
             for (e, c) in h.terms {
                 let d = r.checked_sub(e.iter().sum::<u32>() as usize)?;
                 known
@@ -158,12 +198,21 @@ impl<F: BlackBox + Sync> Shifted<'_, F> {
 /// The rational function behind `g` by Thiele interpolation, from points named by `seed`. `g`
 /// may refuse points.
 pub(crate) fn thiele(
-    mut g: impl FnMut(u64) -> Option<u64>,
+    g: impl FnMut(u64) -> Option<u64>,
     p: u64,
     seed: u64,
 ) -> Option<(Dense, Dense)> {
+    thiele_with_limit(g, p, seed, MAX_POINTS as usize)
+}
+
+fn thiele_with_limit(
+    mut g: impl FnMut(u64) -> Option<u64>,
+    p: u64,
+    seed: u64,
+    max_points: usize,
+) -> Option<(Dense, Dense)> {
     let mut th = Thiele::default();
-    for i in 0..MAX_POINTS {
+    for i in 0..max_points as u64 {
         let t = point(&[seed, i], p);
         let ft = Fp::new(t, p);
         if th.contains(&ft) {

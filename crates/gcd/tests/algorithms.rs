@@ -1,7 +1,7 @@
 use polycore::{Order, Ring};
 use zippel_gcd::{
-    gcd, gcd_with_algorithm, hu_monagan, hu_monagan_bivariate, huang_gao, huang_monagan, zippel,
-    GcdAlgorithm,
+    gcd, gcd_with_algorithm, gcd_with_report, hu_monagan, hu_monagan_bivariate, huang_gao,
+    huang_monagan, zippel, GcdAlgorithm,
 };
 
 #[test]
@@ -12,6 +12,9 @@ fn named_algorithms_recover_the_same_normalized_gcd() {
     let b = &h * &ring.parse("3/11*x*y^2*(y+z+3)").unwrap();
     let expected = (&h * &ring.parse("x*y").unwrap()).primitive();
     assert_eq!(gcd(&a, &b), expected);
+    let (value, report) = gcd_with_report(&a, &b, GcdAlgorithm::HuangGao);
+    assert_eq!(value, expected);
+    assert_eq!(report.attempted, vec![GcdAlgorithm::HuangGao]);
     assert_eq!(zippel(&a, &b), expected);
     for algorithm in [huang_gao, huang_monagan, hu_monagan, hu_monagan_bivariate] {
         assert_eq!(algorithm(&a, &b).unwrap(), expected);
@@ -31,9 +34,21 @@ fn direct_recovery_declines_while_aggregate_apis_fall_back() {
     ] {
         assert!(direct(&f, &f).is_none(), "{selected:?} must not fall back");
         assert_eq!(gcd_with_algorithm(&f, &f, selected), f);
+        let (value, report) = gcd_with_report(&f, &f, selected);
+        assert_eq!(value, f);
+        let expected = if selected == GcdAlgorithm::HuangGao {
+            vec![selected, GcdAlgorithm::HuangMonagan, GcdAlgorithm::Zippel]
+        } else {
+            vec![selected, GcdAlgorithm::Zippel]
+        };
+        assert_eq!(report.attempted, expected);
     }
     assert_eq!(gcd(&f, &f), f);
     assert_eq!(zippel(&f, &f), f);
+    assert_eq!(
+        gcd_with_report(&f, &f, GcdAlgorithm::Zippel).1.attempted,
+        vec![GcdAlgorithm::Zippel]
+    );
 }
 
 #[test]

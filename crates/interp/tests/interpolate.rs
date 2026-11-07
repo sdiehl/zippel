@@ -9,6 +9,16 @@ use polycore::sample::{BlackBox, Rng};
 use zippel_interp::{benor, interpolate};
 
 #[test]
+fn zero_variables_distinguish_refusal_from_zero() {
+    assert_eq!(interpolate(&|_: &[u64], _| None, 0, 101, 1), None);
+    for value in [0, 7] {
+        let recovered = interpolate(&|_: &[u64], _| Some(value), 0, 101, 1).unwrap();
+        assert_eq!(recovered.eval(&[], 101), value);
+        assert_eq!(recovered.terms.is_empty(), value == 0);
+    }
+}
+
+#[test]
 fn recovers_random_sparse_polynomials() {
     let p = Primes::new().next().unwrap();
     let mut rng = Rng::new(1);

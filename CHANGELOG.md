@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Fix substitution of arbitrary variables in modular polynomials.
+- Preserve refused zero-variable interpolation samples as failures.
+- Add configurable interpolation, reconstruction, and CRT lifting budgets.
+- Report recovery failures, probe counts, and retries.
+- Report actual GCD fallback chains and add comparative release benchmarks.
+- Test Rust 1.88 and serial builds in CI.
+- Lock dependency resolution in CI and publishing workflows.
 - Update `polycore` and `groebner` packages.
 
 ## 0.4.0 (2026-10-11)

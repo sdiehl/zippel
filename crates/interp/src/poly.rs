@@ -137,19 +137,27 @@ impl ModPoly {
         (c, Self::from_groups(self.n, k, groups, p))
     }
 
+    /// Substitute `a` for `x_k`, preserving all other variables and descending lex order.
     #[must_use]
     pub fn eval_var(&self, k: usize, a: u64, p: u64) -> Self {
         let pw = &power_table(&[a], &[self.degree(k)], p)[0];
+        let mut evaluated: Vec<_> = self
+            .terms
+            .iter()
+            .map(|(e, c)| {
+                let v = mul(*c, pw[e[k] as usize], p);
+                let mut e = e.clone();
+                e[k] = 0;
+                (e, v)
+            })
+            .collect();
+        // Substitution can change the order and make formerly separated terms equal.
+        evaluated.sort_by(|a, b| b.0.cmp(&a.0));
         let mut terms: Vec<(Exps, u64)> = Vec::new();
-        for (e, c) in &self.terms {
-            let v = mul(*c, pw[e[k] as usize], p);
+        for (e, v) in evaluated {
             match terms.last_mut() {
-                Some((l, s)) if l[..k] == e[..k] => *s = add(*s, v, p),
-                _ => {
-                    let mut l = e.clone();
-                    l[k] = 0;
-                    terms.push((l, v));
-                }
+                Some((l, s)) if *l == e => *s = add(*s, v, p),
+                _ => terms.push((e, v)),
             }
         }
         terms.retain(|t| t.1 != 0);

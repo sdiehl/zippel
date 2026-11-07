@@ -115,6 +115,30 @@ pub enum GcdAlgorithm {
 
 type Poly = polycore::Poly<BigRational>;
 
+/// The top-level recovery chain actually tried, in order.
+///
+/// Shared preprocessing
+/// (including recursive content extraction) is not included. The last entry
+/// identifies the successful attempt, which can also finish during preprocessing.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GcdReport {
+    pub attempted: Vec<GcdAlgorithm>,
+}
+
+/// Compute a GCD with the same fallback chain as [`gcd_with_algorithm`], recording
+/// which attempts ran. This does not add a work limit to the Zippel fallback.
+#[must_use]
+pub fn gcd_with_report(f: &Poly, g: &Poly, algorithm: GcdAlgorithm) -> (Poly, GcdReport) {
+    assert_eq!(f.nvars, g.nvars, "polynomials must share a ring");
+    let mut report = GcdReport {
+        attempted: Vec::new(),
+    };
+    let h = gcd::gcd_z_observed(&integral(f).0, &integral(g).0, algorithm, |a| {
+        report.attempted.push(a);
+    });
+    (normalized(&h, f), report)
+}
+
 /// `f = F / d` with `F` integral.
 fn integral(f: &Poly) -> (IntPoly, BigInt) {
     let d = f

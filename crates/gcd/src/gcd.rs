@@ -15,15 +15,27 @@ use std::iter::once;
 
 /// `gcd(f, g)` up to sign.
 pub(crate) fn gcd_z(f: &IntPoly, g: &IntPoly, algorithm: GcdAlgorithm) -> IntPoly {
-    try_gcd_z(f, g, algorithm)
+    gcd_z_observed(f, g, algorithm, |_| {})
+}
+
+pub(crate) fn gcd_z_observed(
+    f: &IntPoly,
+    g: &IntPoly,
+    algorithm: GcdAlgorithm,
+    mut observe: impl FnMut(GcdAlgorithm),
+) -> IntPoly {
+    let mut attempt = |algorithm| {
+        observe(algorithm);
+        try_gcd_z(f, g, algorithm)
+    };
+    attempt(algorithm)
         .or_else(|| {
             (algorithm == GcdAlgorithm::HuangGao)
-                .then(|| try_gcd_z(f, g, GcdAlgorithm::HuangMonagan))
+                .then(|| attempt(GcdAlgorithm::HuangMonagan))
                 .flatten()
         })
         .unwrap_or_else(|| {
-            try_gcd_z(f, g, GcdAlgorithm::Zippel)
-                .expect("Zippel retries until reconstruction succeeds")
+            attempt(GcdAlgorithm::Zippel).expect("Zippel retries until reconstruction succeeds")
         })
 }
 

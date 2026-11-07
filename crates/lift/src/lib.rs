@@ -15,6 +15,7 @@
 )]
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use num_bigint::BigInt;
@@ -28,7 +29,9 @@ use polycore::{crt, dense, Fp, Modular};
 use polycore::{Monomial, Order};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
-use zippel_interp::{reconstruct, Exps, RatFunc};
+use zippel_interp::{
+    interpolate_with_options, reconstruct_with_options, Exps, RatFunc, RecoveryOptions,
+};
 
 pub type Poly = polycore::Poly<BigRational>;
 
@@ -41,7 +44,71 @@ pub struct Fraction {
 
 type Shape = Vec<(Vec<Exps>, Vec<Exps>)>;
 
-const MAX_PRIMES: usize = 64;
+/// Work limits for ordinary CRT lifting. Factor-discovery helpers retain their defaults.
+#[derive(Clone, Copy, Debug)]
+pub struct LiftOptions {
+    /// Primes tried, including unusable images and the final verification prime.
+    pub max_primes: usize,
+    /// Total calls to the vector oracle across all primes, including refusals.
+    pub max_probes: usize,
+    /// Limits for each component reconstruction. The global probe budget still applies.
+    pub reconstruction: RecoveryOptions,
+}
+
+impl Default for LiftOptions {
+    fn default() -> Self {
+        Self {
+            max_primes: 64,
+            max_probes: usize::MAX,
+            reconstruction: RecoveryOptions::default(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct LiftReport {
+    pub probes: usize,
+    pub rejected_probes: usize,
+    pub primes: usize,
+    /// Primes for which neither fitting nor reconstruction produced an image.
+    pub skipped_primes: usize,
+    /// Attempts to reuse a previously learned support.
+    pub refits: usize,
+    /// Failed refits that triggered full reconstruction.
+    pub failed_refits: usize,
+    /// Full vector image reconstructions, including the initial image.
+    pub reconstructions: usize,
+    /// Component reconstruction attempts, including retries.
+    pub reconstruction_attempts: usize,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LiftFailureReason {
+    ProbeBudgetExceeded,
+    NoUsableSamples,
+    /// No modular image was recovered within the configured search limits.
+    ReconstructionFailed,
+    /// Modular images were recovered, but no rational result was verified in time.
+    PrimeBudgetExceeded,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LiftError {
+    pub reason: LiftFailureReason,
+    pub report: LiftReport,
+}
+
+impl std::fmt::Display for LiftError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{:?} after {} probes and {} primes",
+            self.reason, self.report.probes, self.report.primes
+        )
+    }
+}
+
+impl std::error::Error for LiftError {}
 
 /// Every component of the vector black box `f` in `n` variables as a fraction over Q. `f` must
 /// work modulo any prime it is given and may refuse points. Monte Carlo, like
@@ -54,20 +121,94 @@ pub fn lift(
     lift_impl(&f, n, seed, &[])
 }
 
+/// Lift with configurable budgets and counters on both success and failure.
+///
+/// # Errors
+/// Reports exhausted probe/prime budgets, wholly refused samples, or failed image recovery.
+pub fn lift_with_options(
+    f: impl Fn(&[u64], u64) -> Option<Vec<u64>> + Sync,
+    n: usize,
+    seed: u64,
+    options: &LiftOptions,
+) -> Result<(Vec<Fraction>, LiftReport), LiftError> {
+    let probes = AtomicUsize::new(0);
+    let rejected = AtomicUsize::new(0);
+    let denied = AtomicBool::new(false);
+    let counted = |x: &[u64], p| {
+        // `try_update` is unavailable on the supported Rust 1.88 toolchain.
+        #[allow(deprecated)]
+        let reservation = probes.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |used| {
+            (used < options.max_probes).then(|| used + 1)
+        });
+        if reservation.is_err() {
+            denied.store(true, Ordering::Relaxed);
+            return None;
+        }
+        let value = f(x, p);
+        if value.is_none() {
+            rejected.fetch_add(1, Ordering::Relaxed);
+        }
+        value
+    };
+    let mut report = LiftReport::default();
+    let value = lift_core(&counted, n, seed, &[], options, &mut report);
+    report.probes = probes.load(Ordering::Relaxed);
+    report.rejected_probes = rejected.load(Ordering::Relaxed);
+    value.map(|v| (v, report)).ok_or_else(|| LiftError {
+        reason: if denied.load(Ordering::Relaxed) {
+            LiftFailureReason::ProbeBudgetExceeded
+        } else if report.probes > 0 && report.probes == report.rejected_probes {
+            LiftFailureReason::NoUsableSamples
+        } else if report.primes > 0 && report.skipped_primes == report.primes {
+            LiftFailureReason::ReconstructionFailed
+        } else {
+            LiftFailureReason::PrimeBudgetExceeded
+        },
+        report,
+    })
+}
+
 fn lift_impl(
     f: &(impl Fn(&[u64], u64) -> Option<Vec<u64>> + Sync),
     n: usize,
     seed: u64,
     polynomial: &[bool],
 ) -> Option<Vec<Fraction>> {
+    lift_core(
+        f,
+        n,
+        seed,
+        polynomial,
+        &LiftOptions::default(),
+        &mut LiftReport::default(),
+    )
+}
+
+fn lift_core(
+    f: &(impl Fn(&[u64], u64) -> Option<Vec<u64>> + Sync),
+    n: usize,
+    seed: u64,
+    polynomial: &[bool],
+    options: &LiftOptions,
+    report: &mut LiftReport,
+) -> Option<Vec<Fraction>> {
     let mut acc: Option<Residues> = None;
     let mut candidate: Option<Vec<BigRational>> = None;
-    for p in Primes::new().take(MAX_PRIMES) {
+    for p in Primes::new().take(options.max_primes) {
+        report.primes += 1;
         let fitted = acc.as_ref().and_then(|a| {
-            let values = fit(f, &a.shape, n, p, seed)?;
+            report.refits += 1;
+            let Some(values) = fit(f, &a.shape, n, p, seed) else {
+                report.failed_refits += 1;
+                return None;
+            };
             Some((a.shape.clone(), values))
         });
-        let Some((shape, values)) = fitted.or_else(|| image(f, n, p, seed, polynomial)) else {
+        let Some((shape, values)) = fitted.or_else(|| {
+            report.reconstructions += 1;
+            image(f, n, p, seed, polynomial, &options.reconstruction, report)
+        }) else {
+            report.skipped_primes += 1;
             continue;
         };
         if let (Some(a), Some(q)) = (&acc, &candidate) {
@@ -96,6 +237,8 @@ fn image(
     p: u64,
     seed: u64,
     polynomial: &[bool],
+    options: &RecoveryOptions,
+    report: &mut LiftReport,
 ) -> Option<(Shape, Vec<u64>)> {
     let memo = Mutex::new(HashMap::new());
     let sample = |x: &[u64]| -> Option<Vec<u64>> {
@@ -123,7 +266,11 @@ fn image(
                 .copied()
                 .unwrap_or(false)
                 .then(|| {
-                    zippel_interp::interpolate(&component, n, p, seed).map(|num| RatFunc {
+                    let result = interpolate_with_options(&component, n, p, seed, options);
+                    report.reconstruction_attempts += result
+                        .as_ref()
+                        .map_or_else(|e| e.report.attempts, |(_, r)| r.attempts);
+                    result.ok().map(|(num, _)| RatFunc {
                         num,
                         den: zippel_interp::ModPoly {
                             n,
@@ -132,7 +279,13 @@ fn image(
                     })
                 })
                 .flatten();
-            poly.or_else(|| reconstruct(&component, n, p, seed))
+            poly.or_else(|| {
+                let result = reconstruct_with_options(&component, n, p, seed, options);
+                report.reconstruction_attempts += result
+                    .as_ref()
+                    .map_or_else(|e| e.report.attempts, |(_, r)| r.attempts);
+                result.ok().map(|(value, _)| value)
+            })
         })
         .collect::<Option<_>>()?;
     let shape = images

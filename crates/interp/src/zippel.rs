@@ -9,50 +9,79 @@
 //! interpolations with one seed ask the same questions for as long as their shapes agree.
 
 use crate::poly::{power_table, Exps, ModPoly};
+use crate::recovery::{RecoveryError, RecoveryOptions, RecoveryReport, Tracked};
 use polycore::interp::{master, solve, Newton};
 use polycore::modp::{add, mul, pow};
 use polycore::sample::{hash, point, BlackBox};
 use polycore::{Fp, Modular};
 
-/// Points tried per variable before giving up on a degree.
-const MAX_POINTS: usize = 1 << 12;
-
 /// Points evaluated together when the next one depends on the last, at the risk of a few extra.
 const BATCH: u64 = 8;
 
 /// The polynomial in `n` variables behind `f`, or `None` if it looks like no polynomial of
-/// degree below `MAX_POINTS` in each variable. Monte Carlo, with error probability about
+/// degree below 4096 in each variable. Monte Carlo, with error probability about
 /// `deg / p` per step.
 pub fn interpolate(f: &impl BlackBox, n: usize, p: u64, seed: u64) -> Option<ModPoly> {
-    (0..3).find_map(|attempt| {
-        let seed = hash(&[seed, attempt]);
+    interpolate_impl(f, n, p, seed, &RecoveryOptions::default(), &mut 0)
+}
+
+/// Reconstruct with configurable point, attempt and oracle budgets.
+///
+/// # Errors
+/// Returns the failure category and work counters when reconstruction does not succeed.
+pub fn interpolate_with_options(
+    f: &impl BlackBox,
+    n: usize,
+    p: u64,
+    seed: u64,
+    options: &RecoveryOptions,
+) -> Result<(ModPoly, RecoveryReport), RecoveryError> {
+    let tracked = Tracked::new(f, options.max_probes);
+    let mut attempts = 0;
+    let value = interpolate_impl(&tracked, n, p, seed, options, &mut attempts);
+    tracked.finish(value, attempts)
+}
+
+pub(crate) fn interpolate_impl(
+    f: &impl BlackBox,
+    n: usize,
+    p: u64,
+    seed: u64,
+    options: &RecoveryOptions,
+    attempts: &mut usize,
+) -> Option<ModPoly> {
+    (0..options.max_attempts).find_map(|attempt| {
+        *attempts += 1;
+        let seed = hash(&[seed, attempt as u64]);
         let anchor: Vec<u64> = (0..n as u64).map(|i| point(&[seed, 0, i], p)).collect();
-        let mut h = first(f, &anchor, p, seed)?;
+        let mut h = first(f, &anchor, p, seed, options.max_points)?;
         for k in 1..n {
-            h = lift(f, &h, k, &anchor, p, seed)?;
+            h = lift(f, &h, k, &anchor, p, seed, options.max_points)?;
         }
         Some(h)
     })
 }
 
 /// Dense interpolation in `x_0` with every other variable at the anchor.
-fn first(f: &impl BlackBox, anchor: &[u64], p: u64, seed: u64) -> Option<ModPoly> {
+fn first(
+    f: &impl BlackBox,
+    anchor: &[u64],
+    p: u64,
+    seed: u64,
+    max_points: usize,
+) -> Option<ModPoly> {
     if anchor.is_empty() {
+        let c = f.eval(&[], p)?;
         return Some(ModPoly {
             n: 0,
-            terms: f
-                .eval(&[], p)
-                .filter(|&c| c != 0)
-                .map(|c| (vec![], c))
-                .into_iter()
-                .collect(),
+            terms: if c == 0 { vec![] } else { vec![(vec![], c)] },
         });
     }
     let mut newton = Newton::default();
-    let points = (0..MAX_POINTS as u64)
+    let points = (0..max_points as u64)
         .step_by(BATCH as usize)
         .flat_map(|start| {
-            let xs: Vec<Vec<u64>> = (start..start + BATCH)
+            let xs: Vec<Vec<u64>> = (start..start.saturating_add(BATCH).min(max_points as u64))
                 .map(|i| {
                     let mut x = anchor.to_vec();
                     x[0] = point(&[seed, 1, i], p);
@@ -83,6 +112,7 @@ fn lift(
     anchor: &[u64],
     p: u64,
     seed: u64,
+    max_points: usize,
 ) -> Option<ModPoly> {
     let skeleton = h.support();
     let t = skeleton.len();
@@ -97,7 +127,7 @@ fn lift(
         nw.add(Fp::new(anchor[k], p), Fp::new(*c, p));
     }
     let mut x = anchor.to_vec();
-    for i in 0..MAX_POINTS as u64 {
+    for i in 0..max_points as u64 {
         x[k] = point(&[seed, 2, k as u64, i], p);
         let xk = Fp::new(x[k], p);
         if newton[0].contains(&xk) {

@@ -13,8 +13,10 @@ pub mod factors;
 pub mod geometric;
 pub mod poly;
 pub mod rational;
+pub mod recovery;
 pub mod zippel;
 
 pub use poly::{dense, Dense, Exps, ModPoly};
-pub use rational::{reconstruct, RatFunc};
-pub use zippel::interpolate;
+pub use rational::{reconstruct, reconstruct_with_options, RatFunc};
+pub use recovery::{FailureReason, RecoveryError, RecoveryOptions, RecoveryReport};
+pub use zippel::{interpolate, interpolate_with_options};

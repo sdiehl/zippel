@@ -12,28 +12,36 @@ env:
 
 jobs:
   test:
-    name: Test
+    name: Rust ${{ matrix.toolchain }} / ${{ matrix.features }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain: [stable, "1.88.0"]
+        features: [default, serial]
     steps:
       - uses: actions/checkout@v7
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
+          toolchain: ${{ matrix.toolchain }}
           components: rustfmt, clippy
 
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
 
       - name: Check formatting
+        if: matrix.toolchain == 'stable' && matrix.features == 'default'
         run: cargo fmt --all --check
 
       - name: Run clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        if: matrix.toolchain == 'stable'
+        run: cargo clippy --workspace --all-targets --locked ${{ matrix.features == 'serial' && '--no-default-features' || '--all-features' }} -- -D warnings
 
       - name: Run tests
-        run: cargo test --all
+        run: cargo test --workspace --locked ${{ matrix.features == 'serial' && '--no-default-features' || '' }}
 
       - name: Build release
-        run: cargo build --all --release
+        if: matrix.toolchain == 'stable' && matrix.features == 'default'
+        run: cargo build --workspace --release --locked
