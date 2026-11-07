@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Update `polycore` and `groebner` packages.
+
 ## 0.4.0 (2026-10-11)
 
 - Share the residue echelon between Laporta and block discovery.
