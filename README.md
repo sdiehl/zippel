@@ -68,10 +68,6 @@ I(2,1) = (-d + 3) / (s) * I(1,1)
 I(2,2) = (d^2 - 9*d + 18) / (s^2) * I(1,1)
 ```
 
-## References
-
-See [REFS.md](REFS.md).
-
 ## License
 
 MIT Licensed. Copyright 2024-2026 Stephen Diehl. See [LICENSE](LICENSE) for details.
