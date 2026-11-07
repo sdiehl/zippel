@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 (2026-11-08)
 
 - Fix substitution of arbitrary variables in modular polynomials.
 - Preserve refused zero-variable interpolation samples as failures.
